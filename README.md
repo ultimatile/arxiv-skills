@@ -73,6 +73,28 @@ python /path/to/skill-creator/scripts/init_skill.py your-skill-name --path ./ski
 3. **Clear triggers** - Specify when Claude should use this skill
 4. **Self-contained** - Include all necessary scripts and references
 
+## Installation
+
+### Install to Your Project
+
+```bash
+# Clone this repository
+git clone <this-repo-url> arxiv-skills
+cd arxiv-skills
+
+# Install all skills to current project
+./install-skills.sh
+
+# Or install to custom location
+SKILLS_INSTALL_PATH=/path/to/project/.claude/skills ./install-skills.sh
+
+# Install only specific skill
+./install-skills.sh --arxivterminal
+./install-skills.sh --arxiv-doc-builder
+```
+
+Skills will be installed to `.claude/skills/` in your current directory by default.
+
 ## Quick Start
 
 ### arxivterminal
