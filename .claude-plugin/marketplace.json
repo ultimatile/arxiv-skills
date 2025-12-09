@@ -1,0 +1,23 @@
+{
+  "name": "arxiv-skills",
+  "owner": {
+    "name": "ultimatile",
+    "email": "ultimatile@users.noreply.github.com"
+  },
+  "metadata": {
+    "description": "Custom Claude skills for working with arXiv papers - fetching, searching, and converting to reference documentation",
+    "version": "0.0.1"
+  },
+  "plugins": [
+    {
+      "name": "arxiv-skills",
+      "description": "Collection of arXiv paper management skills including CLI tool integration for fetching/searching papers and converting papers to Markdown documentation",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/arxivterminal",
+        "./skills/arxiv-doc-builder"
+      ]
+    }
+  ]
+}
