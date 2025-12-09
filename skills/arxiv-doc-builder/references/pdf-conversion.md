@@ -4,78 +4,59 @@
 
 Extract and convert PDF content to Markdown when LaTeX source is unavailable.
 
+## Preferred Approach: Use pdf Skill
+
+**If the pdf skill is available** (from Anthropic's official skills repository):
+- The pdf skill provides robust PDF processing capabilities
+- Supports text extraction, table extraction, and form handling
+- Better handling of complex layouts and multi-column formats
+- Use the pdf skill's tools and scripts for PDF processing
+
+**Check if pdf skill is available:**
+```bash
+python scripts/check_pdf_skill.py
+```
+
+**If pdf skill is not available**, use the fallback methods described below.
+
 ## Conversion Strategy
 
 ### 1. Text Extraction
 
 **Using pdfplumber (recommended):**
-```python
-import pdfplumber
-
-with pdfplumber.open("paper.pdf") as pdf:
-    text = ""
-    for page in pdf.pages:
-        text += page.extract_text()
-```
-
-**Advantages:**
 - Good layout preservation
 - Table extraction support
 - Character position information
+
+See `scripts/extract_text_pdfplumber.py` for implementation.
 
 ### 2. Structure Detection
 
 **Section Headers:**
 - Detect by font size/style changes
 - Common patterns: "1. Introduction", "2 Related Work"
-- Use regex patterns:
-  - `^\d+\.?\s+[A-Z]` for numbered sections
-  - `^[A-Z][A-Za-z\s]+$` for all-caps headers
+- Regex patterns for numbered sections and all-caps headers
 
-**Example:**
-```python
-import re
-
-def detect_sections(text):
-    lines = text.split('\n')
-    sections = []
-    for i, line in enumerate(lines):
-        if re.match(r'^\d+\.?\s+[A-Z]', line):
-            sections.append((i, line))
-    return sections
-```
+See `scripts/detect_structure.py` for implementation.
 
 ### 3. Figure Extraction
 
-**Extract images from PDF:**
-```python
-from pdf2image import convert_from_path
-
-images = convert_from_path('paper.pdf', dpi=200)
-for i, image in enumerate(images):
-    image.save(f'figure_{i}.png', 'PNG')
-```
-
-**Or extract embedded images:**
-```bash
-pdfimages -j paper.pdf figures/fig
-```
+**Options:**
+- Convert PDF pages to images (pdf2image)
+- Extract embedded images (pdfimages command)
 
 **Caption Detection:**
 - Search for "Figure X:" or "Fig. X:"
 - Extract text near image bounding boxes
 - Use pdfplumber's layout analysis
 
+See `scripts/extract_figures.py` for implementation.
+
 ### 4. Table Extraction
 
-```python
-with pdfplumber.open("paper.pdf") as pdf:
-    for page in pdf.pages:
-        tables = page.extract_tables()
-        for table in tables:
-            # Convert to Markdown table
-            markdown_table = convert_to_markdown(table)
-```
+Use pdfplumber's table extraction capabilities.
+
+See `scripts/extract_tables.py` for implementation.
 
 ### 5. Mathematics Handling
 
@@ -86,11 +67,7 @@ with pdfplumber.open("paper.pdf") as pdf:
 - Preserve as images for complex equations
 - Manual review recommended for critical formulas
 
-**Best effort:**
-```python
-# Detect math-like patterns (symbols, Greek letters)
-# Keep as verbatim or [Math expression - see PDF]
-```
+**Best effort:** Keep as verbatim or `[Math expression - see PDF]`
 
 ## Column Layout Handling
 
@@ -98,20 +75,9 @@ Academic PDFs often use 2-column layout.
 
 **Problem:** Text extraction may interleave columns.
 
-**Solutions:**
-```python
-# pdfplumber with layout analysis
-with pdfplumber.open("paper.pdf") as pdf:
-    for page in pdf.pages:
-        # Define column boundaries
-        left_bbox = (0, 0, page.width/2, page.height)
-        right_bbox = (page.width/2, 0, page.width, page.height)
+**Solution:** Use pdfplumber with layout analysis to define column boundaries and extract text separately.
 
-        left_text = page.crop(left_bbox).extract_text()
-        right_text = page.crop(right_bbox).extract_text()
-
-        text = left_text + "\n" + right_text
-```
+See `scripts/handle_columns.py` for implementation.
 
 ## Quality Considerations
 
@@ -150,6 +116,17 @@ After conversion:
 | OCR (tesseract) | Fair | None | Poor | Slow |
 
 **Recommendation:** pdfplumber for most cases.
+
+## Integration with pdf Skill
+
+When pdf skill is available, leverage it in your conversion script.
+
+**Conversion workflow:**
+1. Check pdf skill availability (`scripts/check_pdf_skill.py`)
+2. If available, use pdf skill for extraction
+3. Otherwise, fall back to pdfplumber
+
+See `scripts/convert_pdf.py` for the main conversion logic that integrates pdf skill.
 
 ## Fallback Strategy
 

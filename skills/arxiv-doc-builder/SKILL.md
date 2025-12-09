@@ -10,6 +10,7 @@ Convert arXiv papers into reference-friendly Markdown documentation.
 ## Overview
 
 This skill helps convert arXiv papers into structured Markdown documents that are:
+
 - Easy to reference during implementation
 - Preserve mathematical formulas (MathJax compatible)
 - Include figures and captions
@@ -21,6 +22,7 @@ This skill helps convert arXiv papers into structured Markdown documents that ar
 ### 1. Fetch Paper Materials
 
 **For papers with LaTeX source** (preferred):
+
 ```bash
 # Fetch source
 curl -L -o /tmp/ARXIV_ID-src.tar.gz https://arxiv.org/src/ARXIV_ID
@@ -31,6 +33,7 @@ tar -xzf /tmp/ARXIV_ID-src.tar.gz -C /tmp/ARXIV_ID-src
 ```
 
 **For PDF-only papers**:
+
 ```bash
 curl -L -o /tmp/ARXIV_ID.pdf https://arxiv.org/pdf/ARXIV_ID.pdf
 ```
@@ -40,6 +43,7 @@ See [arxiv-fetch.md](references/arxiv-fetch.md) for detailed fetching instructio
 ### 2. Convert to Markdown
 
 **From LaTeX source**:
+
 - Parse `main.tex` or identified main file
 - Extract document structure (sections, subsections)
 - Convert LaTeX math to MathJax/LaTeX notation
@@ -47,7 +51,9 @@ See [arxiv-fetch.md](references/arxiv-fetch.md) for detailed fetching instructio
 - See [latex-conversion.md](references/latex-conversion.md) for details
 
 **From PDF**:
-- Extract text with pdfplumber
+
+- **If pdf skill is available**: Use the pdf skill for better extraction quality
+- Otherwise, extract text with pdfplumber
 - Detect section structure
 - Extract figures
 - Handle tables
@@ -56,6 +62,7 @@ See [arxiv-fetch.md](references/arxiv-fetch.md) for detailed fetching instructio
 ### 3. Output Format
 
 Generated Markdown includes:
+
 - Title and authors
 - Abstract
 - Table of contents
