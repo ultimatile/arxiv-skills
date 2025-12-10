@@ -50,14 +50,22 @@ See [arxiv-fetch.md](references/arxiv-fetch.md) for detailed fetching instructio
 - Process figures and captions
 - See [latex-conversion.md](references/latex-conversion.md) for details
 
-**From PDF**:
+**From PDF** (2 approaches available):
 
-- **If pdf skill is available**: Use the pdf skill for better extraction quality
-- Otherwise, extract text with pdfplumber
-- Detect section structure
-- Extract figures
-- Handle tables
-- See [pdf-conversion.md](references/pdf-conversion.md) for details
+1. **Vision-based conversion (Recommended for accurate math formulas)**:
+   - Convert PDF pages to high-resolution images (300 DPI)
+   - Automatically split 2-column papers for better detail
+   - Use Claude's vision capabilities to read and extract content
+   - Preserves mathematical formulas with LaTeX accuracy
+   - Best for: Older papers, complex formulas, precise extraction
+   - Script: `convert_pdf_with_vision.py`
+
+2. **Simple text extraction (Fast but limited)**:
+   - Extract text from PDF text layer using pdfplumber
+   - Good for modern PDFs with embedded text
+   - Limited accuracy for complex formulas and layouts
+   - Best for: Quick previews, modern well-formatted PDFs
+   - Script: `convert_pdf_simple.py`
 
 ### 3. Output Format
 
@@ -92,18 +100,96 @@ python scripts/convert_paper.py ${ARXIV_ID} --output ./docs/${ARXIV_ID}.md
 
 ## Scripts
 
+### Core Scripts
+
+- `scripts/convert_paper.py` - Main conversion orchestrator (auto-detects source type)
 - `scripts/fetch_paper.py` - Unified paper fetching (tries source, falls back to PDF)
+
+### Conversion Scripts
+
 - `scripts/convert_latex.py` - LaTeX to Markdown conversion
-- `scripts/convert_pdf.py` - PDF to Markdown conversion
-- `scripts/convert_paper.py` - Main conversion orchestrator
+- `scripts/convert_pdf_simple.py` - Simple PDF text extraction (pdfplumber-based)
+- `scripts/convert_pdf_with_vision.py` - Vision-based PDF conversion (recommended for math)
+
+### Recommended Usage
+
+**For papers with complex math formulas:**
+
+```bash
+# Step 1: Convert PDF to images (DPI 300, 2-column split by default)
+./scripts/convert_pdf_with_vision.py paper.pdf -o papers/paper_name/images
+
+# Step 2: Read images with Claude and extract content manually
+# This provides the highest accuracy for mathematical formulas
+```
+
+**For quick text extraction:**
+
+```bash
+./scripts/convert_pdf_simple.py paper.pdf -o output.md
+```
 
 ## Directory Structure
 
 ```
 papers/
 ├── ARXIV_ID/
-│   ├── source/          # LaTeX source files
-│   ├── pdf/             # PDF file
-│   ├── figures/         # Extracted figures
-│   └── ARXIV_ID.md      # Generated Markdown
+│   ├── source/              # LaTeX source files (if available)
+│   ├── pdf/                 # PDF file
+│   ├── images/              # Vision-based: page images
+│   │   ├── page_001_full.png    # Full page
+│   │   ├── page_001_col1.png    # Left column
+│   │   └── page_001_col2.png    # Right column
+│   ├── figures/             # Extracted figures
+│   └── ARXIV_ID.md          # Generated Markdown
+```
+
+## Vision-Based PDF Conversion Details
+
+### Why Vision-Based Approach?
+
+Traditional PDF text extraction struggles with:
+
+- Small superscripts/subscripts (e.g., $K_2^x$, $K_4^\tau$)
+- Complex mathematical formulas
+- 2-column layouts causing text interleaving
+- Scanned or older PDF papers
+
+Vision-based conversion solves these by:
+
+1. Converting PDF to high-resolution images (300 DPI default)
+2. Splitting 2-column pages into separate column images
+3. Using Claude's vision capabilities for accurate reading
+4. Extracting formulas in proper LaTeX format
+
+### Image Resolution Guide
+
+| DPI | Use Case | File Size | Formula Clarity |
+|-----|----------|-----------|----------------|
+| 200 | Preview, modern PDFs | Small | Good |
+| 300 | **Recommended default** | Medium | Excellent |
+| 400+ | Very old/poor quality | Large | Maximum |
+
+### Column Splitting
+
+For 2-column academic papers, splitting provides:
+
+- **2x larger text**: Each column processed at full image width
+- **Better context**: Column-by-column reading matches natural flow
+- **Clearer superscripts**: Small text becomes readable
+
+**Default behavior**: Automatically splits into 2 columns at 300 DPI
+
+```bash
+# Default (recommended)
+./scripts/convert_pdf_with_vision.py paper.pdf
+
+# Disable splitting
+./scripts/convert_pdf_with_vision.py paper.pdf --no-split
+
+# Custom column count
+./scripts/convert_pdf_with_vision.py paper.pdf --columns 3
+
+# Higher resolution
+./scripts/convert_pdf_with_vision.py paper.pdf --dpi 400
 ```

@@ -167,46 +167,102 @@ conversion_date: "2025-12-08"
 ```
 papers/
 └── 2409.03108/
-    ├── 2409.03108.md           # Main document
+    ├── 2409.03108.md                # Main document (paper content only)
+    ├── 2409.03108.conversion.toml   # Conversion metadata
     ├── figures/
     │   ├── fig1.png
     │   ├── fig2.png
     │   └── ...
-    ├── source/                 # Original LaTeX (if available)
+    ├── images/                      # PDF to image conversion (if used)
+    │   ├── page_001_full.png
+    │   ├── page_001_col1.png
+    │   └── ...
+    ├── source/                      # Original LaTeX (if available)
     │   ├── main.tex
     │   └── ...
     └── pdf/
-        └── 2409.03108.pdf      # Original PDF
+        └── 2409.03108.pdf           # Original PDF
 ```
 
-## Quality Indicators
+## Conversion Metadata
 
-Add notes for conversion quality:
+Store conversion information in a separate TOML file to keep the Markdown clean and focused on paper content.
 
-```markdown
----
+### Example: LaTeX Source Conversion
 
-## Conversion Notes
+`2409.03108.conversion.toml`:
+```toml
+arxiv_id = "2409.03108"
+title = "Paper Title"
+authors = "Author A, Author B, Author C"
+published = "2024-09-04"
+categories = ["cs.AI", "cs.CL"]
 
-- **Source:** LaTeX source available
-- **Math:** All equations preserved in LaTeX notation
-- **Figures:** 12 figures extracted and embedded
-- **Tables:** 3 tables converted to Markdown
-- **Quality:** High - complete LaTeX source conversion
+[conversion]
+date = "2025-12-10"
+source_type = "latex"
+method = "pandoc"
 
----
+[quality]
+math_accuracy = "high"
+figures_extracted = 12
+figures_total = 12
+tables_extracted = 3
+notes = [
+    "All equations preserved in LaTeX notation",
+    "Complete LaTeX source conversion"
+]
 ```
 
-Or for PDF conversion:
+### Example: Vision-Based PDF Conversion
 
-```markdown
-## Conversion Notes
+`1981.12345.conversion.toml`:
+```toml
+arxiv_id = "1981.12345"
+title = "Hamiltonian Studies of the d = 2 Ashkin-Teller Model"
+authors = "Kohmoto, M., et al."
+published = "1981-06-15"
+categories = ["cond-mat"]
 
-- **Source:** PDF only (no LaTeX source)
-- **Math:** Complex equations marked as [see PDF]
-- **Figures:** 8 of 10 figures extracted
-- **Tables:** Manual verification recommended
-- **Quality:** Medium - PDF extraction limitations
+[conversion]
+date = "2025-12-10"
+source_type = "pdf"
+method = "vision"
+dpi = 300
+column_split = true
 
----
+[quality]
+math_accuracy = "high"
+figures_extracted = 8
+figures_total = 10
+tables_extracted = 2
+notes = [
+    "Vision-based conversion with 300 DPI",
+    "2-column splitting applied for better accuracy",
+    "Small superscripts/subscripts accurately extracted"
+]
+```
+
+### Example: Simple PDF Conversion
+
+`2020.54321.conversion.toml`:
+```toml
+arxiv_id = "2020.54321"
+title = "Modern Paper Example"
+published = "2020-03-15"
+
+[conversion]
+date = "2025-12-10"
+source_type = "pdf"
+method = "simple"  # pdfplumber-based
+
+[quality]
+math_accuracy = "medium"
+figures_extracted = 5
+figures_total = 6
+notes = [
+    "Fast text extraction using pdfplumber",
+    "Some complex formulas may have formatting issues",
+    "Manual verification recommended for mathematical content"
+]
 ```

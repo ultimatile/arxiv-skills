@@ -5,27 +5,33 @@ Custom Claude skills for working with arXiv papers - fetching, searching, and co
 ## Available Skills
 
 ### 1. arxivterminal
+
 CLI tool integration for fetching and searching arXiv papers locally.
 
 **Use when:** Managing arXiv papers with the `arxiv` command (arxivterminal package).
 
 **Features:**
+
 - Fetch papers by category and date range
 - Search local database (with semantic search)
 - View papers by publication date
 - Database management and statistics
 
 ### 2. arxiv-doc-builder
+
 Convert arXiv papers (PDF or LaTeX source) into well-structured Markdown documentation.
 
 **Use when:** Creating readable reference documentation from arXiv papers for implementation work.
 
 **Features:**
+
+- **Vision-based PDF conversion**: High-accuracy extraction of mathematical formulas using Claude's vision capabilities
 - Automatic PDF/LaTeX source fetching
 - LaTeX → Markdown conversion (with pandoc)
-- Figure extraction and embedding
-- Mathematical formula preservation (MathJax compatible)
+- Column splitting for 2-column papers (better detail on small text)
+- Mathematical formula preservation in LaTeX format (MathJax compatible)
 - Section structure preservation
+- Multiple conversion approaches: vision-based (accurate), text extraction (fast)
 
 ## Repository Structure
 
@@ -44,6 +50,7 @@ Convert arXiv papers (PDF or LaTeX source) into well-structured Markdown documen
 ### Option 1: Manual Creation
 
 1. Copy the template folder:
+
    ```bash
    cp -r template skills/your-skill-name
    ```
@@ -98,7 +105,9 @@ Skills will be installed to `.claude/skills/` in your current directory by defau
 ## Quick Start
 
 ### arxivterminal
+
 Fetch and search arXiv papers:
+
 ```bash
 # Fetch papers from the last 3 days
 arxiv fetch --num-days 3 --categories cs.AI,cs.CL
@@ -111,24 +120,46 @@ arxiv stats
 ```
 
 ### arxiv-doc-builder
-Convert a paper to Markdown:
-```bash
-# Convert paper 2409.03108
-python skills/arxiv-doc-builder/scripts/convert_paper.py 2409.03108
 
+**Option 1: Vision-based conversion (recommended for accurate math)**
+
+```bash
+# Step 1: Convert PDF to high-resolution images
+cd skills/arxiv-doc-builder
+./scripts/convert_pdf_with_vision.py "paper.pdf"
+# Generates: papers/paper_name/images/ with page images at 300 DPI + column splits
+
+# Step 2: Use Claude to read images and extract content with accurate LaTeX formulas
+```
+
+**Option 2: Quick text extraction**
+
+```bash
+# Fast but less accurate for complex formulas
+./scripts/convert_pdf_simple.py "paper.pdf" -o output.md
+```
+
+**Option 3: Full workflow with arXiv ID**
+
+```bash
+# Automatically fetch and convert
+python scripts/convert_paper.py 2409.03108
 # Output: papers/2409.03108/2409.03108.md
 ```
 
 **Requirements:**
-- Python 3.7+
-- pandoc (install: `brew install pandoc`)
-- curl
+
+- Python 3.8+
+- pandoc (for LaTeX conversion: `brew install pandoc`)
+- poppler-utils (for PDF to image: `brew install poppler`)
+- Dependencies auto-installed via uv
 
 ## Using Your Skills
 
 ### In Claude Code
 
 Install as a local plugin:
+
 ```bash
 /plugin install /path/to/this/repo
 ```
@@ -136,39 +167,6 @@ Install as a local plugin:
 ### In Claude.ai
 
 Upload the skill folder or packaged .skill file via the Skills menu.
-
-## Example Workflow
-
-1. **Fetch papers** using `arxivterminal`:
-   ```bash
-   arxiv fetch --num-days 7 --categories cs.AI
-   ```
-
-2. **Search for relevant papers**:
-   ```bash
-   arxiv search -e "neural networks"
-   ```
-
-3. **Convert paper to documentation**:
-   ```bash
-   python skills/arxiv-doc-builder/scripts/convert_paper.py 2409.03108
-   ```
-
-4. **Use the Markdown documentation** for implementation reference
-
-## Development
-
-### Adding New Skills
-
-Follow the skill creation guide in the template directory.
-
-### Generated Files
-
-The `papers/` directory contains generated documentation and is ignored by git. Add it to `.gitignore`:
-```
-papers/
-*.skill
-```
 
 ## Resources
 

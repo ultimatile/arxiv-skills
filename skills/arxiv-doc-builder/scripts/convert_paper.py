@@ -75,10 +75,17 @@ def main():
             sys.exit(1)
     else:
         print("No LaTeX source, using PDF conversion...")
-        # PDF conversion not yet implemented
-        print("✗ PDF conversion not yet implemented")
-        print("  Please implement convert_pdf.py")
-        sys.exit(1)
+        pdf_file = paper_dir / f"{args.arxiv_id}.pdf"
+        if not pdf_file.exists():
+            print(f"✗ PDF file not found: {pdf_file}")
+            sys.exit(1)
+
+        if not run_script(
+            "convert_pdf_simple.py",
+            [str(pdf_file), "-o", str(paper_dir / f"{args.arxiv_id}.md")]
+        ):
+            print("\n✗ PDF conversion failed")
+            sys.exit(1)
 
     print()
     print("=" * 60)
