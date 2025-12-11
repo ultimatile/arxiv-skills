@@ -6,79 +6,35 @@ Custom Claude skills for working with arXiv papers - fetching, searching, and co
 
 ### 1. arxivterminal
 
-CLI tool integration for fetching and searching arXiv papers locally.
+CLI tool integration for fetching, searching, and managing arXiv papers locally using the `arxivterminal` command.
 
-**Use when:** Managing arXiv papers with the `arxiv` command (arxivterminal package).
+**Description:** Enables Claude to work with the arxivterminal CLI tool for fetching new papers by category, searching the local database, viewing papers from specific dates, and managing the local paper database.
 
-**Features:**
+**Use when:** You need Claude to manage arXiv papers using the `arxiv` command (from the arxivterminal package).
 
-- Fetch papers by category and date range
-- Search local database (with semantic search)
+**Capabilities:**
+
+- Fetch papers from arXiv by category and date range
+- Search local database with semantic search
 - View papers by publication date
-- Database management and statistics
+- Check database statistics and manage stored papers
 
 ### 2. arxiv-doc-builder
 
-Convert arXiv papers (PDF or LaTeX source) into well-structured Markdown documentation.
+Automatically convert arXiv papers to well-structured Markdown documentation for implementation reference.
 
-**Use when:** Creating readable reference documentation from arXiv papers for implementation work.
+**Description:** Automatically fetches arXiv papers (LaTeX source or PDF), converts them to Markdown, and generates implementation-ready reference documentation with preserved mathematics and section structure.
 
-**Features:**
+**Use when:** You need Claude to convert an arXiv paper into readable Markdown documentation for code implementation or research reference.
 
-- **Vision-based PDF conversion**: High-accuracy extraction of mathematical formulas using Claude's vision capabilities
-- Automatic PDF/LaTeX source fetching
-- LaTeX → Markdown conversion (with pandoc)
-- Column splitting for 2-column papers (better detail on small text)
-- Mathematical formula preservation in LaTeX format (MathJax compatible)
-- Section structure preservation
-- Multiple conversion approaches: vision-based (accurate), text extraction (fast)
+**Capabilities:**
 
-## Repository Structure
-
-```
-.
-├── skills/              # Custom skills
-│   ├── arxivterminal/   # arXiv CLI tool integration
-│   └── arxiv-doc-builder/  # Paper to Markdown converter
-├── template/            # Template for creating new skills
-├── papers/              # Generated paper documentation (gitignored)
-└── README.md
-```
-
-## Creating a New Skill
-
-### Option 1: Manual Creation
-
-1. Copy the template folder:
-
-   ```bash
-   cp -r template skills/your-skill-name
-   ```
-
-2. Edit `skills/your-skill-name/SKILL.md`:
-   - Update `name` to match your skill folder name
-   - Write a comprehensive `description` (this is how Claude decides when to use the skill)
-   - Add your instructions in the body
-
-3. Add resources as needed:
-   - `scripts/` - Python/Bash scripts for deterministic operations
-   - `references/` - Documentation to load into context as needed
-   - `assets/` - Files used in output (templates, images, etc.)
-
-### Option 2: Using skill-creator (from Anthropic repo)
-
-If you have access to the Anthropic skills repository's `skill-creator`:
-
-```bash
-python /path/to/skill-creator/scripts/init_skill.py your-skill-name --path ./skills/
-```
-
-## Skill Design Principles
-
-1. **Concise descriptions** - The context window is shared
-2. **Progressive disclosure** - Keep SKILL.md under 500 lines, use references for details
-3. **Clear triggers** - Specify when Claude should use this skill
-4. **Self-contained** - Include all necessary scripts and references
+- Automatic paper fetching with source→PDF fallback
+- LaTeX source → Markdown conversion (via pandoc)
+- PDF → Markdown text extraction
+- Mathematical formula preservation in MathJax/LaTeX format
+- Section structure and hierarchy preservation
+- Advanced vision-based PDF conversion available for complex formulas
 
 ## Installation
 
@@ -102,75 +58,9 @@ SKILLS_INSTALL_PATH=/path/to/project/.claude/skills ./install-skills.sh
 
 Skills will be installed to `.claude/skills/` in your current directory by default.
 
-## Quick Start
-
-### arxivterminal
-
-Fetch and search arXiv papers:
-
-```bash
-# Fetch papers from the last 3 days
-arxiv fetch --num-days 3 --categories cs.AI,cs.CL
-
-# Search for papers
-arxiv search -e -l 20 "large language models"
-
-# Check statistics
-arxiv stats
-```
-
-### arxiv-doc-builder
-
-**Option 1: Vision-based conversion (recommended for accurate math)**
-
-```bash
-# Step 1: Convert PDF to high-resolution images
-cd skills/arxiv-doc-builder
-./scripts/convert_pdf_with_vision.py "paper.pdf"
-# Generates: papers/paper_name/images/ with page images at 300 DPI + column splits
-
-# Step 2: Use Claude to read images and extract content with accurate LaTeX formulas
-```
-
-**Option 2: Quick text extraction**
-
-```bash
-# Fast but less accurate for complex formulas
-./scripts/convert_pdf_simple.py "paper.pdf" -o output.md
-```
-
-**Option 3: Full workflow with arXiv ID**
-
-```bash
-# Automatically fetch and convert
-python scripts/convert_paper.py 2409.03108
-# Output: papers/2409.03108/2409.03108.md
-```
-
 **Requirements:**
 
 - Python 3.8+
 - pandoc (for LaTeX conversion: `brew install pandoc`)
-- poppler-utils (for PDF to image: `brew install poppler`)
-- Dependencies auto-installed via uv
-
-## Using Your Skills
-
-### In Claude Code
-
-Install as a local plugin:
-
-```bash
-/plugin install /path/to/this/repo
-```
-
-### In Claude.ai
-
-Upload the skill folder or packaged .skill file via the Skills menu.
-
-## Resources
-
-- [Agent Skills Specification](https://github.com/anthropics/skills/blob/main/spec/agent-skills-spec.md)
-- [Creating Custom Skills Guide](https://support.claude.com/en/articles/12512198-creating-custom-skills)
-- [Example Skills](https://github.com/anthropics/skills)
-- [arXiv API Documentation](https://arxiv.org/help/api)
+- poppler-utils (for advanced PDF processing: `brew install poppler`)
+- Python dependencies auto-installed via uv
