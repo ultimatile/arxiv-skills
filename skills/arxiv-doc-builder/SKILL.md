@@ -1,195 +1,99 @@
 ---
 name: arxiv-doc-builder
-description: Convert arXiv papers (PDF or LaTeX source) into well-structured Markdown documentation optimized for reference during implementation. Use when you need to create readable documentation from arXiv papers for code implementation reference, understanding paper details, or building reference materials.
+description: Automatically convert arXiv papers to well-structured Markdown documentation. Invoke with an arXiv ID to fetch materials (LaTeX source or PDF), convert to Markdown, and generate implementation-ready reference documentation with preserved mathematics and section structure.
 ---
 
 # arXiv Document Builder
 
-Convert arXiv papers into reference-friendly Markdown documentation.
+Automatically converts arXiv papers into structured Markdown documentation for implementation reference.
 
-## Overview
+## Capabilities
 
-This skill helps convert arXiv papers into structured Markdown documents that are:
+This skill automatically:
 
-- Easy to reference during implementation
-- Preserve mathematical formulas (MathJax compatible)
-- Include figures and captions
-- Maintain section hierarchy
-- Optimized for Claude to understand
+1. **Fetches paper materials from arXiv**
+   - Attempts to download LaTeX source first (preferred for accuracy)
+   - Falls back to PDF if source is unavailable
+   - Handles all HTTP requests, extraction, and directory setup
 
-## Workflow
+2. **Converts to structured Markdown**
+   - LaTeX source → Markdown via pandoc (preserves all math and structure)
+   - PDF → Markdown via text extraction (fast, works for most papers)
+   - Preserves mathematical formulas in MathJax/LaTeX format (`$...$`, `$$...$$`)
+   - Maintains section hierarchy and document structure
+   - Includes abstracts, figures, and references
 
-### 1. Fetch Paper Materials
+3. **Generates implementation-ready documentation**
+   - Output saved to `papers/{ARXIV_ID}/{ARXIV_ID}.md`
+   - Easy to reference during code implementation
+   - Optimized for Claude to read and understand
 
-**For papers with LaTeX source** (preferred):
+## When to Use This Skill
+
+Invoke this skill when the user requests:
+- "Convert arXiv paper {ID} to markdown"
+- "Fetch and process paper {ID}"
+- "Create documentation for arXiv:{ID}"
+- "I need to read/reference paper {ID}"
+
+## How It Works
+
+### Single Entry Point
+
+Use the main orchestrator script which handles everything automatically:
 
 ```bash
-# Fetch source
-curl -L -o /tmp/ARXIV_ID-src.tar.gz https://arxiv.org/src/ARXIV_ID
-
-# Extract
-mkdir -p /tmp/ARXIV_ID-src
-tar -xzf /tmp/ARXIV_ID-src.tar.gz -C /tmp/ARXIV_ID-src
+python scripts/convert_paper.py ARXIV_ID [--output-dir DIR]
 ```
 
-**For PDF-only papers**:
+The orchestrator:
+1. Calls `fetch_paper.py` to download materials (with automatic source→PDF fallback)
+2. Detects available format (LaTeX source or PDF)
+3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
+4. Outputs structured Markdown to `papers/{ARXIV_ID}/{ARXIV_ID}.md`
 
-```bash
-curl -L -o /tmp/ARXIV_ID.pdf https://arxiv.org/pdf/ARXIV_ID.pdf
-```
+All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
 
-See [arxiv-fetch.md](references/arxiv-fetch.md) for detailed fetching instructions.
+### Automatic Source Detection and Fallback
 
-### 2. Convert to Markdown
+The fetcher tries LaTeX source first, then PDF:
+- **LaTeX source available**: Downloads `.tar.gz`, extracts to `papers/{ID}/source/`, converts with pandoc
+- **PDF only**: Downloads PDF to `papers/{ID}/pdf/`, extracts text with pdfplumber
 
-**From LaTeX source**:
+No manual intervention needed—the skill handles format detection and fallback automatically.
 
-- Parse `main.tex` or identified main file
-- Extract document structure (sections, subsections)
-- Convert LaTeX math to MathJax/LaTeX notation
-- Process figures and captions
-- See [latex-conversion.md](references/latex-conversion.md) for details
-
-**From PDF** (2 approaches available):
-
-1. **Vision-based conversion (Recommended for accurate math formulas)**:
-   - Convert PDF pages to high-resolution images (300 DPI)
-   - Automatically split 2-column papers for better detail
-   - Use Claude's vision capabilities to read and extract content
-   - Preserves mathematical formulas with LaTeX accuracy
-   - Best for: Older papers, complex formulas, precise extraction
-   - Script: `convert_pdf_with_vision.py`
-
-2. **Simple text extraction (Fast but limited)**:
-   - Extract text from PDF text layer using pdfplumber
-   - Good for modern PDFs with embedded text
-   - Limited accuracy for complex formulas and layouts
-   - Best for: Quick previews, modern well-formatted PDFs
-   - Script: `convert_pdf_simple.py`
-
-### 3. Output Format
+## Output Structure
 
 Generated Markdown includes:
-
-- Title and authors
-- Abstract
-- Table of contents
-- Sections with proper hierarchy
-- Inline math: `$...$` or `\(...\)`
-- Display math: `$$...$$` or `\[...\]`
-- Figures with captions
+- Title, authors, and abstract
+- Full paper content with section hierarchy
+- Inline math: `$f(x) = x^2$`
+- Display math: `$$\int_0^\infty e^{-x} dx = 1$$`
+- Preserved LaTeX commands for complex formulas
 - References section
 
-See [output-format.md](references/output-format.md) for specification.
+Output location: `papers/{ARXIV_ID}/{ARXIV_ID}.md`
 
-## Quick Start
+## Advanced: Vision-Based PDF Conversion
 
-```bash
-# Example: Process paper 2409.03108
-ARXIV_ID="2409.03108"
-
-# 1. Try to fetch source first
-curl -L -o /tmp/${ARXIV_ID}-src.tar.gz https://arxiv.org/src/${ARXIV_ID}
-
-# 2. If source available, use LaTeX conversion
-# Otherwise fall back to PDF conversion
-
-# 3. Run conversion script
-python scripts/convert_paper.py ${ARXIV_ID} --output ./docs/${ARXIV_ID}.md
-```
-
-## Scripts
-
-### Core Scripts
-
-- `scripts/convert_paper.py` - Main conversion orchestrator (auto-detects source type)
-- `scripts/fetch_paper.py` - Unified paper fetching (tries source, falls back to PDF)
-
-### Conversion Scripts
-
-- `scripts/convert_latex.py` - LaTeX to Markdown conversion
-- `scripts/convert_pdf_simple.py` - Simple PDF text extraction (pdfplumber-based)
-- `scripts/convert_pdf_with_vision.py` - Vision-based PDF conversion (recommended for math)
-
-### Recommended Usage
-
-**For papers with complex math formulas:**
+For papers with complex mathematical formulas where text extraction fails, a vision-based approach is available as a manual fallback:
 
 ```bash
-# Step 1: Convert PDF to images (DPI 300, 2-column split by default)
-./scripts/convert_pdf_with_vision.py paper.pdf -o papers/paper_name/images
-
-# Step 2: Read images with Claude and extract content manually
-# This provides the highest accuracy for mathematical formulas
+# Generate high-resolution images from PDF
+python scripts/convert_pdf_with_vision.py paper.pdf --dpi 300 --columns 2
 ```
 
-**For quick text extraction:**
+This creates page images (with optional column splitting) that can be read manually with Claude's vision capabilities for maximum accuracy. This is NOT part of the automatic workflow—use it only when automatic conversion produces poor results.
 
-```bash
-./scripts/convert_pdf_simple.py paper.pdf -o output.md
-```
+See [references/pdf-conversion.md](references/pdf-conversion.md) for details on vision-based conversion.
 
 ## Directory Structure
 
 ```
 papers/
-├── ARXIV_ID/
-│   ├── source/              # LaTeX source files (if available)
-│   ├── pdf/                 # PDF file
-│   ├── images/              # Vision-based: page images
-│   │   ├── page_001_full.png    # Full page
-│   │   ├── page_001_col1.png    # Left column
-│   │   └── page_001_col2.png    # Right column
-│   ├── figures/             # Extracted figures
-│   └── ARXIV_ID.md          # Generated Markdown
-```
-
-## Vision-Based PDF Conversion Details
-
-### Why Vision-Based Approach?
-
-Traditional PDF text extraction struggles with:
-
-- Small superscripts/subscripts (e.g., $K_2^x$, $K_4^\tau$)
-- Complex mathematical formulas
-- 2-column layouts causing text interleaving
-- Scanned or older PDF papers
-
-Vision-based conversion solves these by:
-
-1. Converting PDF to high-resolution images (300 DPI default)
-2. Splitting 2-column pages into separate column images
-3. Using Claude's vision capabilities for accurate reading
-4. Extracting formulas in proper LaTeX format
-
-### Image Resolution Guide
-
-| DPI | Use Case | File Size | Formula Clarity |
-|-----|----------|-----------|----------------|
-| 200 | Preview, modern PDFs | Small | Good |
-| 300 | **Recommended default** | Medium | Excellent |
-| 400+ | Very old/poor quality | Large | Maximum |
-
-### Column Splitting
-
-For 2-column academic papers, splitting provides:
-
-- **2x larger text**: Each column processed at full image width
-- **Better context**: Column-by-column reading matches natural flow
-- **Clearer superscripts**: Small text becomes readable
-
-**Default behavior**: Automatically splits into 2 columns at 300 DPI
-
-```bash
-# Default (recommended)
-./scripts/convert_pdf_with_vision.py paper.pdf
-
-# Disable splitting
-./scripts/convert_pdf_with_vision.py paper.pdf --no-split
-
-# Custom column count
-./scripts/convert_pdf_with_vision.py paper.pdf --columns 3
-
-# Higher resolution
-./scripts/convert_pdf_with_vision.py paper.pdf --dpi 400
+└── {ARXIV_ID}/
+    ├── source/           # LaTeX source files (if available)
+    ├── pdf/              # PDF file
+    ├── {ARXIV_ID}.md     # Generated Markdown output
+    └── figures/          # Extracted figures (if any)
 ```

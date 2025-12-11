@@ -75,9 +75,12 @@ def main():
             sys.exit(1)
     else:
         print("No LaTeX source, using PDF conversion...")
-        pdf_file = paper_dir / f"{args.arxiv_id}.pdf"
+        # Check both possible PDF locations
+        pdf_file = paper_dir / "pdf" / f"{args.arxiv_id}.pdf"
         if not pdf_file.exists():
-            print(f"✗ PDF file not found: {pdf_file}")
+            pdf_file = paper_dir / f"{args.arxiv_id}.pdf"
+        if not pdf_file.exists():
+            print(f"✗ PDF file not found in {paper_dir}")
             sys.exit(1)
 
         if not run_script(
