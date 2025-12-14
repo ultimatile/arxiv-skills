@@ -18,7 +18,10 @@ This skill automatically:
 
 2. **Converts to structured Markdown**
    - LaTeX source → Markdown via pandoc (preserves all math and structure)
-   - PDF → Markdown via text extraction (fast, works for most papers)
+   - PDF → Markdown via text extraction with multiple conversion modes:
+     - Simple single-column conversion (default)
+     - Full double-column conversion for academic papers
+     - Page-wise extraction with mixed column support
    - Preserves mathematical formulas in MathJax/LaTeX format (`$...$`, `$$...$$`)
    - Maintains section hierarchy and document structure
    - Includes abstracts, figures, and references
@@ -73,6 +76,44 @@ Generated Markdown includes:
 - References section
 
 Output location: `papers/{ARXIV_ID}/{ARXIV_ID}.md`
+
+## PDF Conversion Scripts
+
+Three specialized scripts for direct PDF conversion:
+
+### convert_pdf_simple.py
+
+Convert all pages as single-column layout.
+
+```bash
+uv run convert_pdf_simple.py paper.pdf -o output.md
+```
+
+### convert_pdf_double_column.py
+
+Convert all pages as double-column layout (for academic papers).
+
+```bash
+uv run convert_pdf_double_column.py paper.pdf -o output.md
+```
+
+### convert_pdf_extract.py
+
+Extract specific pages with optional double-column processing.
+
+```bash
+# Extract specific pages
+uv run convert_pdf_extract.py paper.pdf --pages 1-5,10 -o output.md
+
+# Extract with mixed column layouts
+uv run convert_pdf_extract.py paper.pdf --pages 1-10 --double-column-pages 3-7 -o output.md
+```
+
+**Note:** `--double-column-pages` must be a subset of `--pages`. Invalid page ranges cause immediate error.
+
+### Architecture
+
+All three scripts share common conversion logic through `pdf_converter_lib.py`, ensuring consistent behavior while keeping each script focused on its specific use case.
 
 ## Advanced: Vision-Based PDF Conversion
 

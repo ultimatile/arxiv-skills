@@ -3,10 +3,10 @@
 # dependencies = ["pdfplumber", "pypdf"]
 # ///
 """
-Simple PDF to Markdown converter - converts all pages as single-column.
+Double-column PDF to Markdown converter - converts all pages as double-column.
 
-This is the basic converter that processes all pages with single-column layout.
-For double-column papers, use convert_pdf_double_column.py or convert_pdf_extract.py.
+This converter processes all pages with double-column layout (common in academic papers).
+For mixed layouts, use convert_pdf_extract.py with --double-column-pages option.
 """
 
 import argparse
@@ -15,11 +15,12 @@ from pathlib import Path
 
 # Import shared library
 from pdf_converter_lib import convert_pdf_to_markdown
+import pdfplumber
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert PDF to Markdown (all pages, single-column)",
+        description="Convert PDF to Markdown (all pages, double-column)",
         epilog="Example: %(prog)s paper.pdf -o output.md"
     )
     parser.add_argument(
@@ -41,12 +42,17 @@ def main():
 
     output_path = args.output or args.pdf_path.with_suffix('.md')
 
-    # Convert all pages as single-column
+    # Get all page numbers
+    with pdfplumber.open(args.pdf_path) as pdf:
+        total_pages = len(pdf.pages)
+        all_pages = set(range(1, total_pages + 1))
+
+    # Convert all pages as double-column
     convert_pdf_to_markdown(
         pdf_path=args.pdf_path,
         output_path=output_path,
         pages_to_extract=None,  # All pages
-        double_column_pages=None  # Single-column
+        double_column_pages=all_pages  # All as double-column
     )
 
 
