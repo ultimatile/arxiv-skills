@@ -34,6 +34,7 @@ This skill automatically:
 ## When to Use This Skill
 
 Invoke this skill when the user requests:
+
 - "Convert arXiv paper {ID} to markdown"
 - "Fetch and process paper {ID}"
 - "Create documentation for arXiv:{ID}"
@@ -50,6 +51,7 @@ python scripts/convert_paper.py ARXIV_ID [--output-dir DIR]
 ```
 
 The orchestrator:
+
 1. Calls `fetch_paper.py` to download materials (with automatic source→PDF fallback)
 2. Detects available format (LaTeX source or PDF)
 3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
@@ -60,6 +62,7 @@ All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) 
 ### Automatic Source Detection and Fallback
 
 The fetcher tries LaTeX source first, then PDF:
+
 - **LaTeX source available**: Downloads `.tar.gz`, extracts to `papers/{ID}/source/`, converts with pandoc
 - **PDF only**: Downloads PDF to `papers/{ID}/pdf/`, extracts text with pdfplumber
 
@@ -68,6 +71,7 @@ No manual intervention needed—the skill handles format detection and fallback 
 ## Output Structure
 
 Generated Markdown includes:
+
 - Title, authors, and abstract
 - Full paper content with section hierarchy
 - Inline math: `$f(x) = x^2$`
