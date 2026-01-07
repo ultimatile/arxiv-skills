@@ -11,7 +11,12 @@ import sys
 from pathlib import Path
 
 
-def fetch_source(arxiv_id: str, output_dir: Path) -> bool:
+def safe_arxiv_id(arxiv_id: str) -> str:
+    """Normalize arXiv ID for filesystem paths."""
+    return arxiv_id.replace("/", "_")
+
+
+def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     """
     Fetch LaTeX source from arXiv.
 
@@ -19,7 +24,7 @@ def fetch_source(arxiv_id: str, output_dir: Path) -> bool:
         True if source was successfully fetched, False otherwise
     """
     source_url = f"https://arxiv.org/src/{arxiv_id}"
-    source_tarball = output_dir / f"{arxiv_id}-src.tar.gz"
+    source_tarball = output_dir / f"{file_id}-src.tar.gz"
     source_dir = output_dir / "source"
 
     print(f"Fetching source from {source_url}...")
@@ -49,7 +54,7 @@ def fetch_source(arxiv_id: str, output_dir: Path) -> bool:
     return True
 
 
-def fetch_pdf(arxiv_id: str, output_dir: Path) -> bool:
+def fetch_pdf(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     """
     Fetch PDF from arXiv.
 
@@ -58,7 +63,7 @@ def fetch_pdf(arxiv_id: str, output_dir: Path) -> bool:
     """
     pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
     pdf_dir = output_dir / "pdf"
-    pdf_file = pdf_dir / f"{arxiv_id}.pdf"
+    pdf_file = pdf_dir / f"{file_id}.pdf"
 
     print(f"Fetching PDF from {pdf_url}...")
 
@@ -98,8 +103,10 @@ def main():
 
     args = parser.parse_args()
 
+    normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
+
     # Create paper directory
-    paper_dir = args.output_dir / args.arxiv_id
+    paper_dir = args.output_dir / normalized_arxiv_id
     paper_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Fetching materials for arXiv:{args.arxiv_id}")
@@ -111,11 +118,11 @@ def main():
 
     # Fetch source unless --pdf-only
     if not args.pdf_only:
-        has_source = fetch_source(args.arxiv_id, paper_dir)
+        has_source = fetch_source(args.arxiv_id, paper_dir, normalized_arxiv_id)
 
     # Fetch PDF unless --source-only
     if not args.source_only:
-        has_pdf = fetch_pdf(args.arxiv_id, paper_dir)
+        has_pdf = fetch_pdf(args.arxiv_id, paper_dir, normalized_arxiv_id)
 
     # Summary
     print()

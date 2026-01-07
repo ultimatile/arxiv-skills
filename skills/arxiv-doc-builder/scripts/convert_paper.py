@@ -11,10 +11,18 @@ import sys
 from pathlib import Path
 
 
-def run_script(script_name: str, args: list) -> bool:
+def safe_arxiv_id(arxiv_id: str) -> str:
+    """Normalize arXiv ID for filesystem paths."""
+    return arxiv_id.replace("/", "_")
+
+
+def run_script(script_name: str, args: list, use_uv: bool = False) -> bool:
     """Run a Python script with arguments."""
     script_path = Path(__file__).parent / script_name
-    cmd = [sys.executable, str(script_path)] + args
+    if use_uv:
+        cmd = ["uv", "run", "--no-project", str(script_path)] + args
+    else:
+        cmd = [sys.executable, str(script_path)] + args
 
     result = subprocess.run(cmd)
     return result.returncode == 0
@@ -39,7 +47,8 @@ def main():
 
     args = parser.parse_args()
 
-    paper_dir = args.output_dir / args.arxiv_id
+    normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
+    paper_dir = args.output_dir / normalized_arxiv_id
     source_dir = paper_dir / "source"
 
     print("=" * 60)
@@ -69,23 +78,30 @@ def main():
         print("LaTeX source detected, using LaTeX conversion...")
         if not run_script(
             "convert_latex.py",
-            [args.arxiv_id, "--source-dir", str(source_dir)]
+            [
+                args.arxiv_id,
+                "--source-dir",
+                str(source_dir),
+                "--output",
+                str(paper_dir / f"{normalized_arxiv_id}.md"),
+            ]
         ):
             print("\n✗ LaTeX conversion failed")
             sys.exit(1)
     else:
         print("No LaTeX source, using PDF conversion...")
         # Check both possible PDF locations
-        pdf_file = paper_dir / "pdf" / f"{args.arxiv_id}.pdf"
+        pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
         if not pdf_file.exists():
-            pdf_file = paper_dir / f"{args.arxiv_id}.pdf"
+            pdf_file = paper_dir / f"{normalized_arxiv_id}.pdf"
         if not pdf_file.exists():
             print(f"✗ PDF file not found in {paper_dir}")
             sys.exit(1)
 
         if not run_script(
             "convert_pdf_simple.py",
-            [str(pdf_file), "-o", str(paper_dir / f"{args.arxiv_id}.md")]
+            [str(pdf_file), "-o", str(paper_dir / f"{normalized_arxiv_id}.md")],
+            use_uv=True,
         ):
             print("\n✗ PDF conversion failed")
             sys.exit(1)
@@ -93,7 +109,7 @@ def main():
     print()
     print("=" * 60)
     print("✓ Conversion complete!")
-    print(f"Output: {paper_dir / f'{args.arxiv_id}.md'}")
+    print(f"Output: {paper_dir / f'{normalized_arxiv_id}.md'}")
     print("=" * 60)
 
 
