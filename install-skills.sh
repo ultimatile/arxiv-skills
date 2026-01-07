@@ -1,19 +1,22 @@
 #!/bin/bash
 #
-# Install arXiv skills to a project directory
+# Install skills to a project directory
 #
 # Usage:
 #   ./install-skills.sh [options]
 #
 # Options:
 #   --help              Show this help message
+#   --list              List available skills
 #   --all               Install all skills (default)
 #   --skill <name>      Install specific skill(s) (can be used multiple times)
 #   --symlink           Create symlinks instead of copying (enables automatic updates)
 #   --symlink-force     Create symlinks with force flag (overwrite existing files without prompt)
+#   --codex             Install to Codex global skills path (~/.codex/skills)
+#   --codex-repo        Install to Codex repository-level path (./.codex/skills)
 #
 # Environment Variables:
-#   SKILLS_INSTALL_PATH  Custom installation path (default: $PWD/.claude/skills)
+#   SKILLS_INSTALL_PATH  Custom installation path (default: $PWD/.claude/skills, ~/.codex/skills with --codex, or ./.codex/skills with --codex-repo)
 
 set -e
 
@@ -23,11 +26,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Default installation path
+# Default installation paths
 DEFAULT_INSTALL_PATH="$PWD/.claude/skills"
 CODEX_INSTALL_PATH="$HOME/.codex/skills"
+CODEX_REPO_INSTALL_PATH="$PWD/.codex/skills"
 INSTALL_PATH="$DEFAULT_INSTALL_PATH"
 USE_CODEX_PATH=false
+USE_CODEX_REPO_PATH=false
 USE_SYMLINK=false
 USE_SYMLINK_FORCE=false
 
@@ -37,8 +42,7 @@ SKILLS_SOURCE_DIR="$SCRIPT_DIR/skills"
 
 # Skills to install
 INSTALL_ALL=true
-INSTALL_ARXIVTERMINAL=false
-INSTALL_DOC_BUILDER=false
+SPECIFIC_SKILLS=()
 
 # Functions
 print_info() {
@@ -55,21 +59,23 @@ print_error() {
 
 show_help() {
     cat << EOF
-Install arXiv skills to a project directory
+Install skills to a project directory
 
 Usage:
   ./install-skills.sh [options]
 
 Options:
   --help              Show this help message
+  --list              List available skills
   --all               Install all skills (default)
   --skill <name>      Install specific skill(s) (can be used multiple times)
   --symlink           Create symlinks instead of copying (enables automatic updates)
   --symlink-force     Create symlinks with force flag (overwrite existing files without prompt)
   --codex             Install to Codex global skills path (~/.codex/skills)
+  --codex-repo        Install to Codex repository-level path (./.codex/skills)
 
 Environment Variables:
-  SKILLS_INSTALL_PATH  Custom installation path (default: \$PWD/.claude/skills)
+  SKILLS_INSTALL_PATH  Custom installation path (default: \$PWD/.claude/skills, ~/.codex/skills with --codex, or ./.codex/skills with --codex-repo)
 
 Examples:
   # Install all skills to default location (copy mode)
@@ -96,12 +102,19 @@ Examples:
   # Install for Codex (global) with symlinks
   ./install-skills.sh --symlink --codex --all
 
+  # Install for Codex (repository-level) with symlinks
+  ./install-skills.sh --symlink --codex-repo --all
+
 Note:
   When using --symlink, the skills will reference this repository directly.
   Any updates to the repository (e.g., git pull) will be immediately reflected
   in all installations. This is useful for development and keeping skills up-to-date.
 
   Use --symlink-force when you want to overwrite existing files without being prompted.
+
+  Codex skill locations (in order of precedence):
+    --codex-repo: ./.codex/skills (repository-level, highest precedence)
+    --codex:      ~/.codex/skills (user-level, lower precedence)
 
 EOF
 }
@@ -201,6 +214,10 @@ while [[ $# -gt 0 ]]; do
             show_help
             exit 0
             ;;
+        --list)
+            list_available_skills
+            exit 0
+            ;;
         --all)
             INSTALL_ALL=true
             shift
@@ -218,10 +235,18 @@ while [[ $# -gt 0 ]]; do
             USE_CODEX_PATH=true
             shift
             ;;
-        --arxiv-doc-builder)
-            INSTALL_ALL=false
-            INSTALL_DOC_BUILDER=true
+        --codex-repo)
+            USE_CODEX_REPO_PATH=true
             shift
+            ;;
+        --skill)
+            INSTALL_ALL=false
+            if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                print_error "--skill requires a skill name"
+                exit 1
+            fi
+            SPECIFIC_SKILLS+=("$2")
+            shift 2
             ;;
         *)
             print_error "Unknown option: $1"
@@ -232,10 +257,19 @@ while [[ $# -gt 0 ]]; do
 esac
 done
 
+# Resolve installation path after parsing flags/environment
+if [ "$USE_CODEX_PATH" = true ]; then
+    INSTALL_PATH="${SKILLS_INSTALL_PATH:-$CODEX_INSTALL_PATH}"
+elif [ "$USE_CODEX_REPO_PATH" = true ]; then
+    INSTALL_PATH="${SKILLS_INSTALL_PATH:-$CODEX_REPO_INSTALL_PATH}"
+else
+    INSTALL_PATH="${SKILLS_INSTALL_PATH:-$DEFAULT_INSTALL_PATH}"
+fi
+
 # Main installation
 echo ""
 echo "╔════════════════════════════════════════════════════╗"
-echo "║       arXiv Skills Installation                    ║"
+echo "║       Skills Installation                          ║"
 echo "╚════════════════════════════════════════════════════╝"
 echo ""
 print_info "Installation path: $INSTALL_PATH"
@@ -251,15 +285,35 @@ fi
 if [ "$INSTALL_ALL" = true ]; then
     print_info "Installing all skills..."
     echo ""
-    install_skill "arxivterminal"
-    install_skill "arxiv-doc-builder"
+
+    # Find all directories with SKILL.md
+    skill_count=0
+    for skill_dir in "$SKILLS_SOURCE_DIR"/*/ ; do
+        if [ -d "$skill_dir" ]; then
+            skill_name=$(basename "$skill_dir")
+            if [ -f "$skill_dir/SKILL.md" ]; then
+                install_skill "$skill_name"
+                skill_count=$((skill_count + 1))
+            else
+                print_warn "Skipping $skill_name (no SKILL.md found)"
+            fi
+        fi
+    done
+
+    if [ $skill_count -eq 0 ]; then
+        print_error "No valid skills found in $SKILLS_SOURCE_DIR"
+        exit 1
+    fi
 else
-    if [ "$INSTALL_ARXIVTERMINAL" = true ]; then
-        install_skill "arxivterminal"
+    # Install specific skills
+    if [ ${#SPECIFIC_SKILLS[@]} -eq 0 ]; then
+        print_error "No skills specified. Use --skill <name> or --all"
+        exit 1
     fi
-    if [ "$INSTALL_DOC_BUILDER" = true ]; then
-        install_skill "arxiv-doc-builder"
-    fi
+
+    for skill_name in "${SPECIFIC_SKILLS[@]}"; do
+        install_skill "$skill_name"
+    done
 fi
 
 echo ""
