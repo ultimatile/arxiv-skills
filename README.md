@@ -42,7 +42,7 @@ Automatically convert arXiv papers to well-structured Markdown documentation for
 
 ```bash
 # Clone this repository
-git clone <this-repo-url> arxiv-skills
+git clone https://github.com/ultimatile/arxiv-skills.git arxiv-skills
 cd arxiv-skills
 
 # Install all skills to current project
