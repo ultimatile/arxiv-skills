@@ -36,8 +36,8 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("papers"),
-        help="Output directory (default: ./papers)"
+        default=Path("."),
+        help="Output directory (default: current directory)"
     )
     parser.add_argument(
         "--skip-fetch",
