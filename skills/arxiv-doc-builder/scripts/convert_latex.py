@@ -62,15 +62,30 @@ def convert_with_pandoc(tex_file: Path, output_md: Path) -> bool:
     return True
 
 
+def extract_title_from_latex(source_dir: Path) -> str:
+    """Extract title from LaTeX source files."""
+    for tex_file in source_dir.glob("*.tex"):
+        content = tex_file.read_text(encoding='utf-8', errors='ignore')
+        # Match \title{...} handling nested braces
+        match = re.search(r'\\title\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}', content)
+        if match:
+            title = match.group(1)
+            # Clean up LaTeX commands
+            title = re.sub(r'\\[a-zA-Z]+\s*', '', title)  # Remove commands
+            title = re.sub(r'[{}]', '', title)  # Remove braces
+            title = re.sub(r'\s+', ' ', title).strip()  # Normalize whitespace
+            return title
+    return "Unknown Title"
+
+
 def post_process_markdown(md_file: Path, arxiv_id: str, source_dir: Path):
     """Post-process Markdown for better formatting."""
     from datetime import datetime
 
     content = md_file.read_text(encoding='utf-8')
 
-    # Extract title (usually first # heading)
-    title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-    title = title_match.group(1) if title_match else "Unknown Title"
+    # Extract title from LaTeX source
+    title = extract_title_from_latex(source_dir)
 
     # Add metadata header
     header = f"""---
