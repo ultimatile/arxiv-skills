@@ -9,8 +9,25 @@ import argparse
 import re
 import subprocess
 import sys
+import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
+
+
+def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
+    """Fetch title from arXiv API."""
+    url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            tree = ET.parse(resp)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        title_elem = tree.find(".//atom:entry/atom:title", ns)
+        if title_elem is not None and title_elem.text:
+            return re.sub(r"\s+", " ", title_elem.text).strip()
+    except Exception:
+        pass
+    return None
 
 
 def find_main_tex(source_dir: Path) -> Optional[Path]:
@@ -84,8 +101,8 @@ def post_process_markdown(md_file: Path, arxiv_id: str, source_dir: Path):
 
     content = md_file.read_text(encoding='utf-8')
 
-    # Extract title from LaTeX source
-    title = extract_title_from_latex(source_dir)
+    # Try arXiv API first, fallback to LaTeX parsing
+    title = fetch_title_from_arxiv(arxiv_id) or extract_title_from_latex(source_dir)
 
     # Add metadata header
     header = f"""---

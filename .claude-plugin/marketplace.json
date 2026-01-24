@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Custom Claude skills for working with arXiv papers - fetching, searching, and converting to reference documentation",
-    "version": "2026.1.1"
+    "version": "2026.1.2"
   },
   "plugins": [
     {
