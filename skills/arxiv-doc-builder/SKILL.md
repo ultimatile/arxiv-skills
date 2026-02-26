@@ -46,7 +46,7 @@ Invoke this skill when the user requests:
 Use the main orchestrator script which handles everything automatically:
 
 ```bash
-python scripts/convert_paper.py ARXIV_ID [--output-dir DIR]
+python arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
 ```
 
 The orchestrator:
@@ -86,7 +86,7 @@ Three specialized scripts for direct PDF conversion:
 Convert all pages as single-column layout.
 
 ```bash
-uv run convert_pdf_simple.py paper.pdf -o output.md
+uv run arxiv_doc_builder/convert_pdf_simple.py paper.pdf -o output.md
 ```
 
 ### convert_pdf_double_column.py
@@ -94,7 +94,7 @@ uv run convert_pdf_simple.py paper.pdf -o output.md
 Convert all pages as double-column layout (for academic papers).
 
 ```bash
-uv run convert_pdf_double_column.py paper.pdf -o output.md
+uv run arxiv_doc_builder/convert_pdf_double_column.py paper.pdf -o output.md
 ```
 
 ### convert_pdf_extract.py
@@ -103,10 +103,10 @@ Extract specific pages with optional double-column processing.
 
 ```bash
 # Extract specific pages
-uv run convert_pdf_extract.py paper.pdf --pages 1-5,10 -o output.md
+uv run arxiv_doc_builder/convert_pdf_extract.py paper.pdf --pages 1-5,10 -o output.md
 
 # Extract with mixed column layouts
-uv run convert_pdf_extract.py paper.pdf --pages 1-10 --double-column-pages 3-7 -o output.md
+uv run arxiv_doc_builder/convert_pdf_extract.py paper.pdf --pages 1-10 --double-column-pages 3-7 -o output.md
 ```
 
 **Note:** `--double-column-pages` must be a subset of `--pages`. Invalid page ranges cause immediate error.
@@ -121,7 +121,7 @@ For papers with complex mathematical formulas where text extraction fails, a vis
 
 ```bash
 # Generate high-resolution images from PDF
-python scripts/convert_pdf_with_vision.py paper.pdf --dpi 300 --columns 2
+python arxiv_doc_builder/convert_pdf_with_vision.py paper.pdf --dpi 300 --columns 2
 ```
 
 This creates page images (with optional column splitting) that can be read manually with Claude's vision capabilities for maximum accuracy. This is NOT part of the automatic workflow—use it only when automatic conversion produces poor results.

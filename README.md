@@ -58,6 +58,24 @@ SKILLS_INSTALL_PATH=/path/to/project/.claude/skills ./install-skills.sh
 
 Skills will be installed to `.claude/skills/` in your current directory by default.
 
+### Install `convert-paper` as a Global CLI Tool
+
+`arxiv-doc-builder` can also be installed as a standalone CLI tool to run `convert-paper` from anywhere:
+
+```bash
+# Clone this repository if you haven't already
+git clone https://github.com/ultimatile/arxiv-skills.git arxiv-skills
+
+# Install with uv (editable: changes from git pull are reflected immediately)
+uv tool install --editable arxiv-skills/skills/arxiv-doc-builder
+```
+
+```bash
+# Usage
+convert-paper 2409.03108
+convert-paper 2409.03108 --output-dir ~/papers
+```
+
 **Requirements:**
 
 - Python 3.8+
