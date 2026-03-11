@@ -16,21 +16,103 @@ def safe_arxiv_id(arxiv_id: str) -> str:
     return arxiv_id.replace("/", "_")
 
 
+def _detect_file_type(path: Path) -> str:
+    """Detect downloaded file type using the file command.
+
+    arXiv source downloads come in several formats:
+      - gzip-compressed tar archive (most common for multi-file submissions)
+      - gzip-compressed single .tex file (common for older papers)
+      - plain text .tex file (rare)
+
+    The file command on the outer gzip layer cannot distinguish between a
+    tar archive and a single file inside, so for gzip files we decompress
+    and check the inner content.
+
+    Returns one of: "tar", "gzip_single", "latex", "unknown"
+    """
+    result = subprocess.run(
+        ["file", "--brief", str(path)],
+        capture_output=True, text=True
+    )
+    desc = result.stdout.strip().lower()
+
+    if "tar archive" in desc:
+        return "tar"
+
+    if "gzip" in desc:
+        # Decompress and check the inner content type via pipe
+        inner = subprocess.run(
+            f'gunzip -c "{path}" | file --brief -',
+            shell=True, capture_output=True, text=True
+        )
+        inner_desc = inner.stdout.strip().lower()
+        if "tar archive" in inner_desc:
+            return "tar"
+        # Single file (LaTeX, text, etc.)
+        return "gzip_single"
+
+    if "latex" in desc or "tex" in desc or "ascii text" in desc:
+        return "latex"
+    return "unknown"
+
+
+def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
+    """Extract a single gzip-compressed file (not a tar archive).
+
+    The file command output often contains the original filename, e.g.:
+      "gzip compressed data, was \"main.tex\", ..."
+    We use that to name the output file, falling back to main.tex.
+    """
+    # Try to recover the original filename from gzip metadata
+    result = subprocess.run(
+        ["file", "--brief", str(downloaded)],
+        capture_output=True, text=True
+    )
+    desc = result.stdout.strip()
+
+    original_name = "main.tex"
+    if 'was "' in desc:
+        # Extract name between quotes: was "foo.tex"
+        start = desc.index('was "') + 5
+        end = desc.index('"', start)
+        original_name = desc[start:end]
+
+    source_dir.mkdir(exist_ok=True)
+    out_path = source_dir / original_name
+
+    decompress = subprocess.run(
+        ["gunzip", "-c", str(downloaded)],
+        capture_output=True
+    )
+    if decompress.returncode != 0:
+        print(f"Failed to decompress: {decompress.stderr.decode()}")
+        return False
+
+    out_path.write_bytes(decompress.stdout)
+    print(f"✓ Source extracted to {out_path} (single gzip file)")
+    return True
+
+
 def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     """
     Fetch LaTeX source from arXiv.
+
+    Handles three arXiv source formats:
+      - tar.gz archive (most common)
+      - single gzip-compressed .tex file (common for older papers)
+      - plain text .tex file (rare)
 
     Returns:
         True if source was successfully fetched, False otherwise
     """
     source_url = f"https://arxiv.org/src/{arxiv_id}"
-    source_tarball = output_dir / f"{file_id}-src.tar.gz"
+    downloaded = output_dir / f"{file_id}-src.tar.gz"
     source_dir = output_dir / "source"
 
     print(f"Fetching source from {source_url}...")
 
     result = subprocess.run(
-        ["curl", "-f", "-L", "-o", str(source_tarball), source_url],
+        ["curl", "-f", "-L", "-o", str(downloaded), source_url],
         capture_output=True
     )
 
@@ -38,19 +120,37 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
         print("Source not available (paper may be PDF-only)")
         return False
 
-    # Extract source
-    source_dir.mkdir(exist_ok=True)
-    result = subprocess.run(
-        ["tar", "-xzf", str(source_tarball), "-C", str(source_dir)],
-        capture_output=True
-    )
+    # Detect file type and extract accordingly
+    file_type = _detect_file_type(downloaded)
+    print(f"  Detected source format: {file_type}")
 
-    if result.returncode != 0:
-        print(f"Failed to extract source: {result.stderr.decode()}")
+    if file_type == "tar":
+        source_dir.mkdir(exist_ok=True)
+        result = subprocess.run(
+            ["tar", "-xzf", str(downloaded), "-C", str(source_dir)],
+            capture_output=True
+        )
+        if result.returncode != 0:
+            print(f"Failed to extract source: {result.stderr.decode()}")
+            return False
+        print(f"✓ Source extracted to {source_dir}")
+
+    elif file_type == "gzip_single":
+        if not _extract_gzip_single(downloaded, source_dir):
+            return False
+
+    elif file_type == "latex":
+        # Plain uncompressed .tex file
+        source_dir.mkdir(exist_ok=True)
+        dest = source_dir / "main.tex"
+        dest.write_bytes(downloaded.read_bytes())
+        print(f"✓ Source saved to {dest} (uncompressed)")
+
+    else:
+        print(f"Unknown source format: {file_type}")
         return False
 
-    print(f"✓ Source extracted to {source_dir}")
-    source_tarball.unlink()  # Clean up tarball
+    downloaded.unlink()  # Clean up downloaded file
     return True
 
 
