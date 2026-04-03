@@ -163,6 +163,11 @@ def main():
         type=Path,
         help="Output Markdown file (default: papers/ARXIV_ID/ARXIV_ID.md)"
     )
+    parser.add_argument(
+        "--tex-file",
+        type=Path,
+        help="Explicit .tex file to convert (absolute or relative to --source-dir)"
+    )
 
     args = parser.parse_args()
 
@@ -182,11 +187,19 @@ def main():
         print(f"Error: Source directory not found: {source_dir}")
         sys.exit(1)
 
-    # Find main .tex file
-    tex_file = find_main_tex(source_dir)
-    if not tex_file:
-        print(f"Error: No main .tex file found in {source_dir}")
-        sys.exit(1)
+    # Resolve selected .tex file
+    if args.tex_file:
+        tex_file = args.tex_file
+        if not tex_file.is_absolute():
+            tex_file = source_dir / tex_file
+        if not tex_file.exists() or tex_file.suffix.lower() != ".tex":
+            print(f"Error: Invalid --tex-file: {tex_file}")
+            sys.exit(1)
+    else:
+        tex_file = find_main_tex(source_dir)
+        if not tex_file:
+            print(f"Error: No main .tex file found in {source_dir}")
+            sys.exit(1)
 
     print(f"Found main file: {tex_file.name}")
 

@@ -28,6 +28,32 @@ def run_script(script_name: str, args: list, use_uv: bool = False) -> bool:
     return result.returncode == 0
 
 
+def has_documentclass(tex_file: Path) -> bool:
+    """Return True when a .tex file looks like a primary LaTeX entrypoint."""
+    try:
+        content = tex_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "\\documentclass" in content
+
+
+def list_tex_candidates(source_dir: Path, max_candidates: int = 10) -> list[Path]:
+    """Select .tex candidates ordered by quality, then size (largest first)."""
+    tex_files = [p for p in source_dir.glob("*.tex") if p.is_file()]
+    if not tex_files:
+        return []
+
+    ranked = sorted(
+        tex_files,
+        key=lambda p: (
+            0 if has_documentclass(p) else 1,
+            -p.stat().st_size,
+            p.name,
+        ),
+    )
+    return ranked[:max_candidates]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert arXiv paper to Markdown documentation"
@@ -74,19 +100,40 @@ def main():
     print("-" * 60)
 
     # Check if source is available
-    if source_dir.exists() and list(source_dir.glob("*.tex")):
-        print("LaTeX source detected, using LaTeX conversion...")
-        if not run_script(
-            "convert_latex.py",
-            [
-                args.arxiv_id,
-                "--source-dir",
-                str(source_dir),
-                "--output",
-                str(paper_dir / f"{normalized_arxiv_id}.md"),
-            ]
-        ):
-            print("\n✗ LaTeX conversion failed")
+    if source_dir.exists():
+        tex_candidates = list_tex_candidates(source_dir, max_candidates=10)
+    else:
+        tex_candidates = []
+
+    if tex_candidates:
+        print(
+            f"LaTeX source detected, trying up to {len(tex_candidates)} .tex candidate(s)..."
+        )
+        output_md = paper_dir / f"{normalized_arxiv_id}.md"
+
+        latex_success = False
+        for index, tex_file in enumerate(tex_candidates, 1):
+            print(
+                f"[{index}/{len(tex_candidates)}] Trying LaTeX conversion with {tex_file.name}"
+            )
+            if run_script(
+                "convert_latex.py",
+                [
+                    args.arxiv_id,
+                    "--source-dir",
+                    str(source_dir),
+                    "--output",
+                    str(output_md),
+                    "--tex-file",
+                    tex_file.name,
+                ],
+            ):
+                latex_success = True
+                break
+            print(f"Failed with {tex_file.name}, trying next candidate...")
+
+        if not latex_success:
+            print("\n✗ LaTeX conversion failed for all candidate .tex files")
             sys.exit(1)
     else:
         print("No LaTeX source, using PDF conversion...")

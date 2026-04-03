@@ -9,6 +9,14 @@ CLI tool for managing arXiv papers with local database storage.
 
 ## Quick Reference
 
+## Installation Source
+
+Use this exact repository/branch for `arxivterminal`:
+
+```bash
+uv tool install --force "git+https://github.com/Dorianhgn/arxivterminal.git@fix/arxivterminal-https-endpoint"
+```
+
 ### Fetch Papers from arXiv
 
 When you need to download papers from arXiv and store them locally:
