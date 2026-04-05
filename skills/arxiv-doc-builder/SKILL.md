@@ -27,7 +27,7 @@ This skill automatically:
    - Includes abstracts, figures, and references
 
 3. **Generates implementation-ready documentation**
-   - Output saved to `papers/{ARXIV_ID}/{ARXIV_ID}.md`
+   - Output saved to `{ARXIV_ID}/{ARXIV_ID}.md` under the output directory (default: current working directory)
    - Easy to reference during code implementation
    - Optimized for Claude to read and understand
 
@@ -43,17 +43,24 @@ Invoke this skill when the user requests:
 
 ### Single Entry Point
 
-Use the main orchestrator script which handles everything automatically:
+Use the main orchestrator script or the globally installed `convert-paper` command:
 
 ```bash
-python arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
+# Using global command (recommended)
+convert-paper ARXIV_ID [--output-dir DIR]
+
+# Using script directly
+uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
 ```
+
+- `--output-dir`: Directory where `{ARXIV_ID}/{ARXIV_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
+- Use absolute paths to control output location precisely.
 
 The orchestrator:
 1. Calls `fetch_paper.py` to download materials (with automatic source→PDF fallback)
 2. Detects available format (LaTeX source or PDF)
 3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
-4. Outputs structured Markdown to `papers/{ARXIV_ID}/{ARXIV_ID}.md`
+4. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
 
 All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
 
@@ -75,7 +82,7 @@ Generated Markdown includes:
 - Preserved LaTeX commands for complex formulas
 - References section
 
-Output location: `papers/{ARXIV_ID}/{ARXIV_ID}.md`
+Output location: `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md` (default output-dir is current working directory)
 
 ## PDF Conversion Scripts
 
@@ -144,8 +151,10 @@ The source `(see, e.g., {\cite{makhlin})` has an unmatched `{`. LaTeX compiles f
 
 ## Directory Structure
 
+Output is created under `--output-dir` (default: current working directory):
+
 ```
-papers/
+{output-dir}/
 └── {ARXIV_ID}/
     ├── source/           # LaTeX source files (if available)
     ├── pdf/              # PDF file
