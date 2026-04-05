@@ -7,41 +7,54 @@ description: CLI tool (arxivterminal) for fetching, searching, and managing arXi
 
 CLI tool for managing arXiv papers with local database storage.
 
+## Important: Fetch Before Search
+
+`arxiv search` queries the **local database only**. If the database is empty or doesn't contain relevant papers, search will return no results. Always run `arxiv fetch` first to populate the database with papers from the desired categories and time range.
+
 ## Quick Reference
 
 ### Fetch Papers from arXiv
 
-When you need to download papers from arXiv and store them locally:
+Download papers and store them in the local database:
 
-- Use `arxiv fetch --num-days N --categories CATEGORIES`
-- See [arxivterminal-fetch.md](references/arxivterminal-fetch.md) for detailed options and examples
+```bash
+arxiv fetch --num-days N --categories CATEGORIES
+```
+
+See [arxivterminal-fetch.md](references/arxivterminal-fetch.md) for detailed options and examples.
 
 ### Search Local Database
 
-When you need to search papers already in your local database:
+Search papers already fetched into the local database:
 
-- Use `arxiv search QUERY`
-- See [arxivterminal-search.md](references/arxivterminal-search.md) for search options including experimental semantic search
+```bash
+arxiv search QUERY
+arxiv search -e -l 20 QUERY    # experimental semantic search, limit 20
+```
+
+**Note:** `arxiv search` launches an interactive UI. It is not suitable for non-interactive (piped/scripted) use.
+
+See [arxivterminal-search.md](references/arxivterminal-search.md) for search options.
 
 ### Show Papers by Date
 
-When you need to view papers from a specific time period:
+```bash
+arxiv show --days-ago N
+```
 
-- Use `arxiv show --days-ago N`
-- See [arxivterminal-show.md](references/arxivterminal-show.md) for details
+See [arxivterminal-show.md](references/arxivterminal-show.md) for details.
 
 ### Database Statistics
 
-When you need to check what's in your database:
+```bash
+arxiv stats
+```
 
-- Use `arxiv stats`
-- See [arxivterminal-stats.md](references/arxivterminal-stats.md) for output format
+See [arxivterminal-stats.md](references/arxivterminal-stats.md) for output format.
 
 ### Database Management
 
-When you need to clean up or reset your database:
-
-- Use `arxiv delete-all`
+- Use `arxiv delete-all` to reset the database
 - See [arxivterminal-management.md](references/arxivterminal-management.md) for database location and backup procedures
 
 ## Data Storage
@@ -49,18 +62,38 @@ When you need to clean up or reset your database:
 - **Database**: `~/Library/Application Support/arxivterminal/papers.db`
 - **Logs**: `~/Library/Logs/arxivterminal/arxivterminal.log`
 
+## Common arXiv Categories
+
+Physics:
+- `cond-mat.str-el` — Strongly Correlated Electrons
+- `cond-mat.stat-mech` — Statistical Mechanics
+- `quant-ph` — Quantum Physics
+- `hep-th` — High Energy Physics (Theory)
+
+CS/ML:
+- `cs.AI` — Artificial Intelligence
+- `cs.LG` — Machine Learning
+- `cs.CL` — Computation and Language
+
+Math:
+- `math-ph` — Mathematical Physics
+- `math.NA` — Numerical Analysis
+
 ## Common Workflows
 
 ### Daily Research Workflow
 
 ```bash
-arxiv fetch --num-days 1 --categories cs.AI,cs.CL
-arxiv search -e -l 20 "large language models"
+# Step 1: Fetch recent papers into local DB
+arxiv fetch --num-days 1 --categories quant-ph,cond-mat.str-el
+
+# Step 2: Search the fetched papers
+arxiv search -e -l 20 "variational Monte Carlo"
 ```
 
 ### Weekly Review
 
 ```bash
-arxiv fetch --num-days 7 --categories cs.AI,cs.LG,cs.CV
+arxiv fetch --num-days 7 --categories cs.AI,cs.LG,quant-ph
 arxiv stats
 ```

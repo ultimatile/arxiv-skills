@@ -28,17 +28,26 @@ arxiv fetch --num-days 1 --categories cs.CL
 
 ## Common arXiv Categories
 
+Physics:
+- `cond-mat.str-el` - Strongly Correlated Electrons
+- `cond-mat.stat-mech` - Statistical Mechanics
+- `quant-ph` - Quantum Physics
+- `hep-th` - High Energy Physics (Theory)
+- `physics.data-an` - Data Analysis, Statistics and Probability
+
+CS/ML:
 - `cs.AI` - Artificial Intelligence
 - `cs.CL` - Computation and Language
 - `cs.CV` - Computer Vision and Pattern Recognition
 - `cs.LG` - Machine Learning
 - `cs.NE` - Neural and Evolutionary Computing
-- `cs.CR` - Cryptography and Security
-- `cs.DB` - Databases
 - `cs.SE` - Software Engineering
-- `stat.ML` - Machine Learning (Statistics)
+
+Math:
+- `math-ph` - Mathematical Physics
+- `math.NA` - Numerical Analysis
 - `math.CO` - Combinatorics
-- `physics.data-an` - Data Analysis, Statistics and Probability
+- `stat.ML` - Machine Learning (Statistics)
 
 ## Notes
 
