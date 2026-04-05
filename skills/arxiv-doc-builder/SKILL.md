@@ -135,6 +135,23 @@ This creates page images (with optional column splitting) that can be read manua
 
 See [references/pdf-conversion.md](references/pdf-conversion.md) for details on vision-based conversion.
 
+## Troubleshooting: Multiple \documentclass Files
+
+Some arXiv papers (e.g., PRL with supplemental material) contain multiple `.tex` files, each with its own `\documentclass`. When this happens, the converter warns:
+
+```
+⚠ Found 2 files with \documentclass:
+  [0] main_paper.tex
+  [1] supplemental_material.tex
+  Non-interactive mode, selecting [0] main_paper.tex
+```
+
+If the wrong file was selected, re-run the LaTeX converter directly with `--tex-file`:
+
+```bash
+convert_latex.py ARXIV_ID --source-dir {output-dir}/{ARXIV_ID}/source --tex-file {output-dir}/{ARXIV_ID}/source/correct_file.tex --output {output-dir}/{ARXIV_ID}/{ARXIV_ID}.md
+```
+
 ## Troubleshooting: pandoc Conversion Failures
 
 When pandoc fails on a LaTeX source, the error may point to `\end{document}` with `unexpected \end`. This means pandoc's parser broke down due to a syntax issue elsewhere — `\end{document}` itself is not the cause. Do NOT attempt broad preprocessing (replacing documentclass, expanding `\newcommand`, removing environments, etc.) — pandoc handles revtex4/revtex4-2, custom commands, `picture` environments, and theorem environments correctly.
