@@ -40,11 +40,37 @@ def find_main_tex(source_dir: Path) -> Optional[Path]:
         if tex_file.exists():
             return tex_file
 
-    # Find any .tex file with \documentclass
-    for tex_file in source_dir.glob("*.tex"):
+    # Collect all .tex files with \documentclass
+    doc_files = []
+    for tex_file in sorted(source_dir.glob("*.tex")):
         content = tex_file.read_text(encoding='utf-8', errors='ignore')
         if '\\documentclass' in content:
-            return tex_file
+            doc_files.append(tex_file)
+
+    if len(doc_files) == 1:
+        return doc_files[0]
+
+    if len(doc_files) > 1:
+        # Multiple \documentclass files found — prompt user to select
+        print(f"\n⚠ Found {len(doc_files)} files with \\documentclass:")
+        for i, f in enumerate(doc_files):
+            print(f"  [{i}] {f.name}")
+
+        if sys.stdin.isatty():
+            while True:
+                try:
+                    choice = input(f"Select main file [0-{len(doc_files)-1}]: ").strip()
+                    idx = int(choice)
+                    if 0 <= idx < len(doc_files):
+                        return doc_files[idx]
+                    print(f"  Invalid index. Enter 0-{len(doc_files)-1}.")
+                except (ValueError, EOFError):
+                    print(f"  Defaulting to [{0}] {doc_files[0].name}")
+                    return doc_files[0]
+        else:
+            # Non-interactive: pick first and warn
+            print(f"  Non-interactive mode, selecting [{0}] {doc_files[0].name}")
+            return doc_files[0]
 
     return None
 

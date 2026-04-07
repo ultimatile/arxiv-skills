@@ -54,6 +54,24 @@ def list_tex_candidates(source_dir: Path, max_candidates: int = 10) -> list[Path
     return ranked[:max_candidates]
 
 
+def convert_with_pdf_fallback(paper_dir: Path, normalized_arxiv_id: str) -> bool:
+    """Convert from PDF if LaTeX conversion is unavailable or failed."""
+    print("Using PDF conversion fallback...")
+
+    pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
+    if not pdf_file.exists():
+        pdf_file = paper_dir / f"{normalized_arxiv_id}.pdf"
+    if not pdf_file.exists():
+        print(f"✗ PDF file not found in {paper_dir}")
+        return False
+
+    return run_script(
+        "convert_pdf_simple.py",
+        [str(pdf_file), "-o", str(paper_dir / f"{normalized_arxiv_id}.md")],
+        use_uv=True,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert arXiv paper to Markdown documentation"
@@ -133,23 +151,13 @@ def main():
             print(f"Failed with {tex_file.name}, trying next candidate...")
 
         if not latex_success:
-            print("\n✗ LaTeX conversion failed for all candidate .tex files")
-            sys.exit(1)
+            print("\nLaTeX conversion failed for all candidate .tex files")
+            if not convert_with_pdf_fallback(paper_dir, normalized_arxiv_id):
+                print("\n✗ PDF fallback conversion failed")
+                sys.exit(1)
     else:
         print("No LaTeX source, using PDF conversion...")
-        # Check both possible PDF locations
-        pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
-        if not pdf_file.exists():
-            pdf_file = paper_dir / f"{normalized_arxiv_id}.pdf"
-        if not pdf_file.exists():
-            print(f"✗ PDF file not found in {paper_dir}")
-            sys.exit(1)
-
-        if not run_script(
-            "convert_pdf_simple.py",
-            [str(pdf_file), "-o", str(paper_dir / f"{normalized_arxiv_id}.md")],
-            use_uv=True,
-        ):
+        if not convert_with_pdf_fallback(paper_dir, normalized_arxiv_id):
             print("\n✗ PDF conversion failed")
             sys.exit(1)
 
