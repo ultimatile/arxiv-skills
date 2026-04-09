@@ -36,6 +36,20 @@ Automatically convert arXiv papers to well-structured Markdown documentation for
 - Section structure and hierarchy preservation
 - Advanced vision-based PDF conversion available for complex formulas
 
+### 3. arxiv-lookup
+
+Lightweight scripts for querying the arXiv API directly — get journal DOIs from arXiv IDs, or search for papers by title/keyword.
+
+**Description:** Look up arXiv paper metadata via the arXiv API. Get journal DOIs from arXiv IDs (for OpenAlex integration), or find arXiv IDs from title/keyword search (for arxiv-doc-builder).
+
+**Use when:** You need Claude to look up a paper's journal DOI, or find arXiv IDs by searching titles, authors, or categories.
+
+**Capabilities:**
+
+- Get journal DOI from an arXiv ID (`get_doi.py`)
+- Search arXiv by title, author, abstract, or category (`search_id.py`)
+- Supports arXiv API field prefixes (`ti:`, `au:`, `abs:`, `cat:`) and boolean operators
+
 ## Installation
 
 ### Install to Your Project
@@ -52,8 +66,9 @@ cd arxiv-skills
 SKILLS_INSTALL_PATH=/path/to/project/.claude/skills ./install-skills.sh
 
 # Install only specific skill
-./install-skills.sh --arxivterminal
-./install-skills.sh --arxiv-doc-builder
+./install-skills.sh --skill arxivterminal
+./install-skills.sh --skill arxiv-doc-builder
+./install-skills.sh --skill arxiv-lookup
 ```
 
 Skills will be installed to `.claude/skills/` in your current directory by default.
