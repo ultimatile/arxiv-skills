@@ -22,18 +22,18 @@ def normalize_arxiv_id(arxiv_id: str) -> str:
     and YYMM.NNNN (4 digits) for 0704-1412. The arXiv website redirects
     short IDs but the API requires exact format.
     """
-    m = re.match(r"^(\d{4})\.(\d+)$", arxiv_id)
+    m = re.match(r"^(\d{4})\.(\d+)(v\d+)?$", arxiv_id)
     if not m:
         return arxiv_id  # old-style (e.g. math/0703001) or already correct
-    yymm, num = m.group(1), m.group(2)
+    yymm, num, version = m.group(1), m.group(2), m.group(3) or ""
     width = 5 if int(yymm) >= 1501 else 4
-    return f"{yymm}.{num.zfill(width)}"
+    return f"{yymm}.{num.zfill(width)}{version}"
 
 
 def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
     """Fetch title from arXiv API."""
     arxiv_id = normalize_arxiv_id(arxiv_id)
-    url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
+    url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             tree = ET.parse(resp)
