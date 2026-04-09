@@ -9,6 +9,7 @@ import argparse
 import re
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -33,7 +34,7 @@ def normalize_arxiv_id(arxiv_id: str) -> str:
 def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
     """Fetch title from arXiv API."""
     arxiv_id = normalize_arxiv_id(arxiv_id)
-    url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+    url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode({"id_list": arxiv_id})
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             tree = ET.parse(resp)
