@@ -16,8 +16,14 @@ def safe_arxiv_id(arxiv_id: str) -> str:
     return arxiv_id.replace("/", "_")
 
 
-def run_script(script_name: str, args: list, use_uv: bool = False) -> bool:
-    """Run a Python script with arguments."""
+def run_script(script_name: str, args: list, use_uv: bool = False) -> int:
+    """Run a Python script with arguments and return its exit code.
+
+    Returning the raw returncode (instead of a bool) lets callers distinguish
+    semantically meaningful non-zero codes — e.g., exit code 2 from
+    convert_latex.py signals "ambiguous main .tex" and must be propagated
+    instead of collapsed into a generic failure.
+    """
     script_path = Path(__file__).parent / script_name
     if use_uv:
         cmd = ["uv", "run", "--no-project", str(script_path)] + args
@@ -25,7 +31,7 @@ def run_script(script_name: str, args: list, use_uv: bool = False) -> bool:
         cmd = [sys.executable, str(script_path)] + args
 
     result = subprocess.run(cmd)
-    return result.returncode == 0
+    return result.returncode
 
 
 def main():
@@ -44,6 +50,12 @@ def main():
         action="store_true",
         help="Skip fetching (use existing files)"
     )
+    parser.add_argument(
+        "--tex-file",
+        type=Path,
+        help="Specify the main .tex file directly "
+             "(required when multiple \\documentclass files are present)"
+    )
 
     args = parser.parse_args()
 
@@ -61,10 +73,11 @@ def main():
     if not args.skip_fetch:
         print("Step 1: Fetching paper materials...")
         print("-" * 60)
-        if not run_script(
+        rc = run_script(
             "fetch_paper.py",
             [args.arxiv_id, "--output-dir", str(args.output_dir)]
-        ):
+        )
+        if rc != 0:
             print("\n✗ Fetching failed")
             sys.exit(1)
         print()
@@ -73,19 +86,32 @@ def main():
     print("Step 2: Converting to Markdown...")
     print("-" * 60)
 
-    # Check if source is available
-    if source_dir.exists() and list(source_dir.glob("*.tex")):
-        print("LaTeX source detected, using LaTeX conversion...")
-        if not run_script(
-            "convert_latex.py",
-            [
-                args.arxiv_id,
-                "--source-dir",
-                str(source_dir),
-                "--output",
-                str(paper_dir / f"{normalized_arxiv_id}.md"),
-            ]
-        ):
+    # Decide LaTeX vs PDF path. An explicit --tex-file always forces the
+    # LaTeX path: the auto-detection here only globs the top level of
+    # source/, but some arXiv layouts put the real entrypoint in a
+    # subdirectory, and --tex-file is advertised as a direct override.
+    has_top_level_tex = source_dir.exists() and list(source_dir.glob("*.tex"))
+    if args.tex_file or has_top_level_tex:
+        if args.tex_file:
+            print(f"Using explicit --tex-file {args.tex_file}, running LaTeX conversion...")
+        else:
+            print("LaTeX source detected, using LaTeX conversion...")
+        latex_args = [
+            args.arxiv_id,
+            "--source-dir",
+            str(source_dir),
+            "--output",
+            str(paper_dir / f"{normalized_arxiv_id}.md"),
+        ]
+        if args.tex_file:
+            latex_args += ["--tex-file", str(args.tex_file)]
+        rc = run_script("convert_latex.py", latex_args)
+        if rc != 0:
+            # Exit code 2 signals ambiguous main .tex — the child already
+            # printed a detailed stderr message with candidate paths and
+            # a re-run suggestion, so we just propagate the code.
+            if rc == 2:
+                sys.exit(2)
             print("\n✗ LaTeX conversion failed")
             sys.exit(1)
     else:
@@ -98,11 +124,12 @@ def main():
             print(f"✗ PDF file not found in {paper_dir}")
             sys.exit(1)
 
-        if not run_script(
+        rc = run_script(
             "convert_pdf_simple.py",
             [str(pdf_file), "-o", str(paper_dir / f"{normalized_arxiv_id}.md")],
             use_uv=True,
-        ):
+        )
+        if rc != 0:
             print("\n✗ PDF conversion failed")
             sys.exit(1)
 
