@@ -177,7 +177,15 @@ conversion_date: "{datetime.now().isoformat()}"
 
 
 def copy_figures(source_dir: Path, output_dir: Path):
-    """Copy figure files to output directory."""
+    """Copy figure files to output directory.
+
+    Recurses into source_dir because LaTeX papers commonly place figures
+    below the entrypoint (source/subdir/fig.png) or above it
+    (source/fig.png referenced via ../fig.png). The markdown post-processor
+    already flattens image paths to figures/<basename>, so copying by
+    basename matches the rewritten references regardless of where in the
+    source tree the file originated.
+    """
     figures_dir = output_dir / "figures"
     figures_dir.mkdir(exist_ok=True)
 
@@ -186,7 +194,7 @@ def copy_figures(source_dir: Path, output_dir: Path):
 
     copied = 0
     for ext in image_exts:
-        for img_file in source_dir.glob(f"*{ext}"):
+        for img_file in source_dir.rglob(f"*{ext}"):
             dest = figures_dir / img_file.name
             dest.write_bytes(img_file.read_bytes())
             copied += 1

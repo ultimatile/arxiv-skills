@@ -66,10 +66,22 @@ def main():
         # self-contained: a user copying the suggested command from a
         # different cwd or without re-passing --output-dir must not hit
         # "Source directory not found" before the explicit file is even
-        # used. Post-processing (title extraction and figure copy) also
-        # operates on the chosen file's sibling directory, which is the
-        # right scope when the real entrypoint lives in a subdirectory.
-        source_dir = args.tex_file.resolve().parent
+        # used.
+        #
+        # Walk up from the chosen file to find the extracted tree root —
+        # by convention convert_paper.py extracts archives into
+        # <paper_dir>/source/, so the nearest ancestor named "source" is
+        # the correct root. Using the tree root (not the chosen file's
+        # immediate parent) matters because figures can live above the
+        # entrypoint, e.g. source/subdir/main.tex referencing
+        # \includegraphics{../fig1.png} in source/fig1.png. Fall back to
+        # the immediate parent for non-standard layouts.
+        resolved_tex = args.tex_file.resolve()
+        source_dir = resolved_tex.parent
+        for ancestor in resolved_tex.parents:
+            if ancestor.name == "source":
+                source_dir = ancestor
+                break
     else:
         source_dir = paper_dir / "source"
 
