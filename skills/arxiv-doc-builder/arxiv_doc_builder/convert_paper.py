@@ -61,29 +61,7 @@ def main():
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
     paper_dir = args.output_dir / normalized_arxiv_id
-    if args.tex_file:
-        # Explicit entrypoint overrides source_dir so the recovery rerun is
-        # self-contained: a user copying the suggested command from a
-        # different cwd or without re-passing --output-dir must not hit
-        # "Source directory not found" before the explicit file is even
-        # used.
-        #
-        # Walk up from the chosen file to find the extracted tree root —
-        # by convention convert_paper.py extracts archives into
-        # <paper_dir>/source/, so the nearest ancestor named "source" is
-        # the correct root. Using the tree root (not the chosen file's
-        # immediate parent) matters because figures can live above the
-        # entrypoint, e.g. source/subdir/main.tex referencing
-        # \includegraphics{../fig1.png} in source/fig1.png. Fall back to
-        # the immediate parent for non-standard layouts.
-        resolved_tex = args.tex_file.resolve()
-        source_dir = resolved_tex.parent
-        for ancestor in resolved_tex.parents:
-            if ancestor.name == "source":
-                source_dir = ancestor
-                break
-    else:
-        source_dir = paper_dir / "source"
+    source_dir = paper_dir / "source"
 
     print("=" * 60)
     print(f"arXiv Paper to Markdown Converter")
