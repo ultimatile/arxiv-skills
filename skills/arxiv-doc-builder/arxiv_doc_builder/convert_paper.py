@@ -86,9 +86,16 @@ def main():
     print("Step 2: Converting to Markdown...")
     print("-" * 60)
 
-    # Check if source is available
-    if source_dir.exists() and list(source_dir.glob("*.tex")):
-        print("LaTeX source detected, using LaTeX conversion...")
+    # Decide LaTeX vs PDF path. An explicit --tex-file always forces the
+    # LaTeX path: the auto-detection here only globs the top level of
+    # source/, but some arXiv layouts put the real entrypoint in a
+    # subdirectory, and --tex-file is advertised as a direct override.
+    has_top_level_tex = source_dir.exists() and list(source_dir.glob("*.tex"))
+    if args.tex_file or has_top_level_tex:
+        if args.tex_file:
+            print(f"Using explicit --tex-file {args.tex_file}, running LaTeX conversion...")
+        else:
+            print("LaTeX source detected, using LaTeX conversion...")
         latex_args = [
             args.arxiv_id,
             "--source-dir",
