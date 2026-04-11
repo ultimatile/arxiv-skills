@@ -61,7 +61,17 @@ def main():
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
     paper_dir = args.output_dir / normalized_arxiv_id
-    source_dir = paper_dir / "source"
+    if args.tex_file:
+        # Explicit entrypoint overrides source_dir so the recovery rerun is
+        # self-contained: a user copying the suggested command from a
+        # different cwd or without re-passing --output-dir must not hit
+        # "Source directory not found" before the explicit file is even
+        # used. Post-processing (title extraction and figure copy) also
+        # operates on the chosen file's sibling directory, which is the
+        # right scope when the real entrypoint lives in a subdirectory.
+        source_dir = args.tex_file.resolve().parent
+    else:
+        source_dir = paper_dir / "source"
 
     print("=" * 60)
     print(f"arXiv Paper to Markdown Converter")
