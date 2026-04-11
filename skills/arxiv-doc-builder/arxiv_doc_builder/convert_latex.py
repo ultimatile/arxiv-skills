@@ -179,12 +179,13 @@ conversion_date: "{datetime.now().isoformat()}"
 def copy_figures(source_dir: Path, output_dir: Path):
     """Copy figure files to output directory.
 
-    Recurses into source_dir because LaTeX papers commonly place figures
-    below the entrypoint (source/subdir/fig.png) or above it
-    (source/fig.png referenced via ../fig.png). The markdown post-processor
-    already flattens image paths to figures/<basename>, so copying by
-    basename matches the rewritten references regardless of where in the
-    source tree the file originated.
+    Only top-level figures are copied. Recursing is tempting but unsafe:
+    the markdown post-processor rewrites all image references to
+    ``figures/<basename>``, so two nested assets with the same basename
+    (e.g. ``main/fig1.png`` and ``supp/fig1.png``) would silently collide
+    and substitute the wrong asset for at least one reference. A proper
+    fix requires collision-aware, path-preserving copying plus a smarter
+    rewriter, which is out of scope here.
     """
     figures_dir = output_dir / "figures"
     figures_dir.mkdir(exist_ok=True)
@@ -194,7 +195,7 @@ def copy_figures(source_dir: Path, output_dir: Path):
 
     copied = 0
     for ext in image_exts:
-        for img_file in source_dir.rglob(f"*{ext}"):
+        for img_file in source_dir.glob(f"*{ext}"):
             dest = figures_dir / img_file.name
             dest.write_bytes(img_file.read_bytes())
             copied += 1
