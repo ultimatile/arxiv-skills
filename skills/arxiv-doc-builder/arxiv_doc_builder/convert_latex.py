@@ -47,9 +47,30 @@ def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
     return None
 
 
+class AmbiguousMainTexError(Exception):
+    """Raised when multiple \\documentclass files exist and no explicit --tex-file was given.
+
+    Selecting the correct entry point cannot be done reliably by heuristics
+    (file size, sort order, or trial conversion) because supplements and
+    fragments can convert successfully just like the main paper. The caller
+    must re-run with --tex-file pointing at the intended file.
+    """
+
+    def __init__(self, candidates: list):
+        self.candidates = candidates
+        super().__init__(f"Found {len(candidates)} files with \\documentclass")
+
+
 def find_main_tex(source_dir: Path) -> Optional[Path]:
-    """Find the main .tex file in source directory."""
-    # Common main file names
+    """Find the main .tex file in source directory.
+
+    Raises AmbiguousMainTexError if multiple files with \\documentclass are
+    present and none of the conventional names (main.tex, paper.tex, ms.tex,
+    article.tex) exists. The caller is expected to translate this into a
+    fail-first error and require --tex-file on the re-run.
+    """
+    # Conventional main file names take precedence over the ambiguity check:
+    # if the source already uses a known layout, there is nothing ambiguous.
     candidates = ["main.tex", "paper.tex", "ms.tex", "article.tex"]
 
     for candidate in candidates:
@@ -68,26 +89,7 @@ def find_main_tex(source_dir: Path) -> Optional[Path]:
         return doc_files[0]
 
     if len(doc_files) > 1:
-        # Multiple \documentclass files found — prompt user to select
-        print(f"\n⚠ Found {len(doc_files)} files with \\documentclass:")
-        for i, f in enumerate(doc_files):
-            print(f"  [{i}] {f.name}")
-
-        if sys.stdin.isatty():
-            while True:
-                try:
-                    choice = input(f"Select main file [0-{len(doc_files)-1}]: ").strip()
-                    idx = int(choice)
-                    if 0 <= idx < len(doc_files):
-                        return doc_files[idx]
-                    print(f"  Invalid index. Enter 0-{len(doc_files)-1}.")
-                except (ValueError, EOFError):
-                    print(f"  Defaulting to [{0}] {doc_files[0].name}")
-                    return doc_files[0]
-        else:
-            # Non-interactive: pick first and warn
-            print(f"  Non-interactive mode, selecting [{0}] {doc_files[0].name}")
-            return doc_files[0]
+        raise AmbiguousMainTexError(doc_files)
 
     return None
 
@@ -237,7 +239,35 @@ def main():
             print(f"Error: Specified .tex file not found: {tex_file}")
             sys.exit(1)
     else:
-        tex_file = find_main_tex(source_dir)
+        try:
+            tex_file = find_main_tex(source_dir)
+        except AmbiguousMainTexError as e:
+            # Fail-first: do not guess. Require an explicit --tex-file on re-run.
+            # Use absolute paths so the suggestion is portable across cwd and
+            # --output-dir differences between the original run and the re-run.
+            abs_candidates = [c.resolve() for c in e.candidates]
+            print(
+                f"Error: Found {len(abs_candidates)} files with \\documentclass "
+                f"in {source_dir.resolve()}:",
+                file=sys.stderr,
+            )
+            for c in abs_candidates:
+                print(f"  - {c}", file=sys.stderr)
+            print(
+                "\nMain .tex selection is ambiguous. Re-run with --tex-file "
+                "pointing at the correct file, e.g.:",
+                file=sys.stderr,
+            )
+            print(
+                f"  convert-paper <ARXIV_ID> --skip-fetch --tex-file {abs_candidates[0]}",
+                file=sys.stderr,
+            )
+            print(
+                "\nIf you originally passed --output-dir, include the same value "
+                "in the re-run.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
     if not tex_file:
         print(f"Error: No main .tex file found in {source_dir}")
         sys.exit(1)

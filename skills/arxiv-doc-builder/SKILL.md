@@ -137,20 +137,28 @@ See [references/pdf-conversion.md](references/pdf-conversion.md) for details on 
 
 ## Troubleshooting: Multiple \documentclass Files
 
-Some arXiv papers (e.g., PRL with supplemental material) contain multiple `.tex` files, each with its own `\documentclass`. When this happens, the converter warns:
+Some arXiv papers (e.g., PRL with supplemental material) contain multiple `.tex` files, each with its own `\documentclass`. Automatic selection is unreliable in this case — the canonical example is `1911.04882`, which ships both the main PRL paper and an independent PRL supplement, and either can convert successfully. Since pandoc succeeding is not evidence that the selected file is the correct entry point, `convert-paper` refuses to guess: it fails explicitly with **exit code 2** and lists all candidates.
+
+Example failure output:
 
 ```
-⚠ Found 2 files with \documentclass:
-  [0] main_paper.tex
-  [1] supplemental_material.tex
-  Non-interactive mode, selecting [0] main_paper.tex
+Error: Found 2 files with \documentclass in /path/to/1911.04882/source:
+  - /path/to/1911.04882/source/main_paper.tex
+  - /path/to/1911.04882/source/supplemental_material.tex
+
+Main .tex selection is ambiguous. Re-run with --tex-file pointing at the correct file, e.g.:
+  convert-paper <ARXIV_ID> --skip-fetch --tex-file /path/to/1911.04882/source/main_paper.tex
+
+If you originally passed --output-dir, include the same value in the re-run.
 ```
 
-If the wrong file was selected, re-run the LaTeX converter directly with `--tex-file`:
+To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file, combined with `--skip-fetch` to reuse the already-downloaded source:
 
 ```bash
-convert_latex.py ARXIV_ID --source-dir {output-dir}/{ARXIV_ID}/source --tex-file {output-dir}/{ARXIV_ID}/source/correct_file.tex --output {output-dir}/{ARXIV_ID}/{ARXIV_ID}.md
+convert-paper 1911.04882 --skip-fetch --tex-file /path/to/1911.04882/source/main_paper.tex
 ```
+
+If the original run used `--output-dir`, pass the same value again so that `convert-paper` reconstructs the correct paper directory.
 
 ## Troubleshooting: pandoc Conversion Failures
 
