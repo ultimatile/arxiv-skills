@@ -6,6 +6,7 @@ Tries to fetch LaTeX source first, falls back to PDF if unavailable.
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -133,6 +134,7 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     file_type = _detect_file_type(downloaded)
     print(f"  Detected source format: {file_type}")
 
+    extract_ok = False
     if file_type == "tar":
         source_dir.mkdir(exist_ok=True)
         result = subprocess.run(
@@ -141,12 +143,12 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
         )
         if result.returncode != 0:
             print(f"Failed to extract source: {result.stderr.decode()}")
-            return False
-        print(f"✓ Source extracted to {source_dir}")
+        else:
+            print(f"✓ Source extracted to {source_dir}")
+            extract_ok = True
 
     elif file_type == "gzip_single":
-        if not _extract_gzip_single(downloaded, source_dir):
-            return False
+        extract_ok = _extract_gzip_single(downloaded, source_dir)
 
     elif file_type == "latex":
         # Plain uncompressed .tex file
@@ -154,9 +156,15 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
         dest = source_dir / "main.tex"
         dest.write_bytes(downloaded.read_bytes())
         print(f"✓ Source saved to {dest} (uncompressed)")
+        extract_ok = True
 
     else:
         print(f"Unknown source format: {file_type}")
+
+    if not extract_ok:
+        # Remove partial extraction so it cannot masquerade as a cache hit
+        shutil.rmtree(source_dir, ignore_errors=True)
+        downloaded.unlink(missing_ok=True)
         return False
 
     downloaded.unlink()  # Clean up downloaded file
