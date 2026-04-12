@@ -32,6 +32,11 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(tmp_path):
         "\\documentclass{article}\n\\begin{document}\nhi\n\\end{document}\n",
         encoding="utf-8",
     )
+    # Seed a non-empty PDF so the idempotent fetch_pdf() skips the
+    # network (existence-based: non-empty file → cache hit).
+    pdf_dir = paper_dir / "pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    (pdf_dir / f"{arxiv_id}.pdf").write_bytes(b"%PDF-stub")
 
     script = Path(__file__).parent / "convert_paper.py"
     result = subprocess.run(
@@ -39,7 +44,6 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(tmp_path):
             sys.executable,
             str(script),
             arxiv_id,
-            "--skip-fetch",
             "--output-dir",
             str(tmp_path),
             "--tex-file",

@@ -268,7 +268,7 @@ def main():
                 file=sys.stderr,
             )
             print(
-                f"  convert-paper <ARXIV_ID> --skip-fetch --tex-file {abs_candidates[0]}",
+                f"  convert-paper <ARXIV_ID> --tex-file {abs_candidates[0]}",
                 file=sys.stderr,
             )
             print(

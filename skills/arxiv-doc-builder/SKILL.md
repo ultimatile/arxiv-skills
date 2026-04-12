@@ -147,15 +147,15 @@ Error: Found 2 files with \documentclass in /path/to/1911.04882/source:
   - /path/to/1911.04882/source/supplemental_material.tex
 
 Main .tex selection is ambiguous. Re-run with --tex-file pointing at the correct file, e.g.:
-  convert-paper <ARXIV_ID> --skip-fetch --tex-file /path/to/1911.04882/source/main_paper.tex
+  convert-paper <ARXIV_ID> --tex-file /path/to/1911.04882/source/main_paper.tex
 
 If you originally passed --output-dir, include the same value in the re-run.
 ```
 
-To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file, combined with `--skip-fetch` to reuse the already-downloaded source:
+To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file. The fetch step is idempotent, so the already-downloaded source is reused without touching the network:
 
 ```bash
-convert-paper 1911.04882 --skip-fetch --tex-file /path/to/1911.04882/source/main_paper.tex
+convert-paper 1911.04882 --tex-file /path/to/1911.04882/source/main_paper.tex
 ```
 
 If the original run used `--output-dir`, pass the same value again so that `convert-paper` reconstructs the correct paper directory.
