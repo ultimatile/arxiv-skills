@@ -102,12 +102,20 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
       - single gzip-compressed .tex file (common for older papers)
       - plain text .tex file (rare)
 
+    Idempotent: if the source directory already contains at least one
+    ``.tex`` file, the network fetch is skipped entirely.
+
     Returns:
-        True if source was successfully fetched, False otherwise
+        True if source is available (freshly fetched or already present),
+        False if the fetch failed or the source is not available on arXiv.
     """
     source_url = f"https://arxiv.org/src/{arxiv_id}"
     downloaded = output_dir / f"{file_id}-src.tar.gz"
     source_dir = output_dir / "source"
+
+    if source_dir.exists() and any(source_dir.rglob("*.tex")):
+        print(f"✓ Source already present at {source_dir}, skipping fetch")
+        return True
 
     print(f"Fetching source from {source_url}...")
 
@@ -118,6 +126,7 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
 
     if result.returncode != 0:
         print("Source not available (paper may be PDF-only)")
+        downloaded.unlink(missing_ok=True)
         return False
 
     # Detect file type and extract accordingly
@@ -158,12 +167,21 @@ def fetch_pdf(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     """
     Fetch PDF from arXiv.
 
+    Idempotent: if the PDF file already exists and is non-empty, the
+    network fetch is skipped. The non-empty check guards against a
+    previous interrupted curl leaving a zero-byte placeholder.
+
     Returns:
-        True if PDF was successfully fetched, False otherwise
+        True if PDF is available (freshly fetched or already present),
+        False if the fetch failed.
     """
     pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
     pdf_dir = output_dir / "pdf"
     pdf_file = pdf_dir / f"{file_id}.pdf"
+
+    if pdf_file.exists() and pdf_file.stat().st_size > 0:
+        print(f"✓ PDF already present at {pdf_file}, skipping fetch")
+        return True
 
     print(f"Fetching PDF from {pdf_url}...")
 
@@ -175,6 +193,12 @@ def fetch_pdf(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
 
     if result.returncode != 0:
         print(f"Failed to fetch PDF: {result.stderr.decode()}")
+        pdf_file.unlink(missing_ok=True)
+        return False
+
+    if pdf_file.stat().st_size == 0:
+        print("Failed to fetch PDF: empty response")
+        pdf_file.unlink(missing_ok=True)
         return False
 
     print(f"✓ PDF saved to {pdf_file}")

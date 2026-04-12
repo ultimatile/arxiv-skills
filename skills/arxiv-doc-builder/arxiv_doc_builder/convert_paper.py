@@ -46,11 +46,6 @@ def main():
         help="Output directory (default: current directory)"
     )
     parser.add_argument(
-        "--skip-fetch",
-        action="store_true",
-        help="Skip fetching (use existing files)"
-    )
-    parser.add_argument(
         "--tex-file",
         type=Path,
         help="Specify the main .tex file directly "
@@ -69,18 +64,17 @@ def main():
     print("=" * 60)
     print()
 
-    # Step 1: Fetch materials
-    if not args.skip_fetch:
-        print("Step 1: Fetching paper materials...")
-        print("-" * 60)
-        rc = run_script(
-            "fetch_paper.py",
-            [args.arxiv_id, "--output-dir", str(args.output_dir)]
-        )
-        if rc != 0:
-            print("\n✗ Fetching failed")
-            sys.exit(1)
-        print()
+    # Step 1: Fetch materials (idempotent — skips network when files exist)
+    print("Step 1: Fetching paper materials...")
+    print("-" * 60)
+    rc = run_script(
+        "fetch_paper.py",
+        [args.arxiv_id, "--output-dir", str(args.output_dir)]
+    )
+    if rc != 0:
+        print("\n✗ Fetching failed")
+        sys.exit(1)
+    print()
 
     # Step 2: Convert to Markdown
     print("Step 2: Converting to Markdown...")
