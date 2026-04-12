@@ -168,7 +168,7 @@ When pandoc fails on a LaTeX source, the error may point to `\end{document}` wit
 
 1. **Binary search for the failing line.** Extract the body (`\begin{document}` to `\end{document}`), then test pandoc with increasing prefixes to find the first line that causes failure.
 2. **Check that line for brace mismatches.** The most common cause is an unbalanced `{` or `}` in the LaTeX source. LaTeX's TeX engine silently tolerates these, but pandoc's structured parser does not.
-3. **Fix only the mismatch and retry.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient.
+3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. The fetch step is idempotent, so the cached source and PDF are reused without network access.
 
 ### Example
 
