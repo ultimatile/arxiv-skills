@@ -56,26 +56,10 @@ Lightweight scripts for querying the arXiv API directly — get journal DOIs fro
 
 ## Installation
 
-### Install to Your Project
-
 ```bash
-# Clone this repository
-git clone https://github.com/ultimatile/arxiv-skills.git arxiv-skills
-cd arxiv-skills
-
-# Install all skills to current project
-./install-skills.sh
-
-# Or install to custom location
-SKILLS_INSTALL_PATH=/path/to/project/.claude/skills ./install-skills.sh
-
-# Install only specific skill
-./install-skills.sh --skill arxivterminal
-./install-skills.sh --skill arxiv-doc-builder
-./install-skills.sh --skill arxiv-lookup
+claude plugin marketplace add ultimatile/arxiv-skills
+claude plugin install arxiv-skills
 ```
-
-Skills will be installed to `.claude/skills/` in your current directory by default.
 
 ### Install `convert-paper` as a Global CLI Tool
 
