@@ -16,7 +16,8 @@
       "strict": false,
       "skills": [
         "./skills/arxivterminal",
-        "./skills/arxiv-doc-builder"
+        "./skills/arxiv-doc-builder",
+        "./skills/arxiv-lookup"
       ]
     }
   ]
