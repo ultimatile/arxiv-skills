@@ -109,7 +109,11 @@ def main():
             print("\n✗ LaTeX conversion failed")
             sys.exit(1)
     else:
-        print("No LaTeX source, using PDF conversion...")
+        print("No LaTeX source, falling back to naive PDF conversion...")
+        print("⚠ This uses single-column text extraction only.")
+        print("  Output quality varies — inspect the result and consider")
+        print("  using convert_pdf_double_column.py or convert_pdf_extract.py")
+        print("  if the output is garbled.")
         # Check both possible PDF locations
         pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
         if not pdf_file.exists():

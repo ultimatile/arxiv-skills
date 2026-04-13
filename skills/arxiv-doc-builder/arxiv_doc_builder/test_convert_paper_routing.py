@@ -62,7 +62,7 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(tmp_path):
 
     # Negative assertion: the PDF branch must NOT have been taken. Its
     # own marker string would indicate a routing regression.
-    assert "No LaTeX source, using PDF conversion" not in result.stdout, (
+    assert "falling back to naive PDF conversion" not in result.stdout, (
         "convert-paper silently fell through to the PDF branch despite "
         "--tex-file being explicitly provided.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
