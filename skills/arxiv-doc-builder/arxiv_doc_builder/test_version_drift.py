@@ -4,8 +4,6 @@ These tests verify the pure decision logic (_needs_refresh,
 _read_cached_version, _write_cached_version) without network access.
 """
 
-import json
-
 from arxiv_doc_builder.fetch_paper import (
     _needs_refresh,
     _read_cached_version,

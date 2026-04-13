@@ -59,6 +59,10 @@ def _get_latest_version(arxiv_id: str) -> Optional[str]:
         if id_elem is None or not id_elem.text:
             return None
         # <id>http://arxiv.org/abs/2409.03108v2</id> → "2409.03108v2"
+        # <id>http://arxiv.org/abs/hep-th/9901001v2</id> → "hep-th/9901001v2"
+        path = urllib.parse.urlparse(id_elem.text).path
+        if path.startswith("/abs/"):
+            return path[len("/abs/"):] or None
         return id_elem.text.rsplit("/", 1)[-1]
     except Exception:
         return None
@@ -208,7 +212,6 @@ def fetch_source(
         return True
 
     if refresh:
-        print("Version drift detected, re-fetching source...")
         # Clear stale source tree so renamed/deleted files don't persist
         shutil.rmtree(source_dir, ignore_errors=True)
 
@@ -288,9 +291,6 @@ def fetch_pdf(
         print(f"✓ PDF already present at {pdf_file}, skipping fetch")
         return True
 
-    if refresh:
-        print(f"Version drift detected, re-fetching PDF...")
-
     print(f"Fetching PDF from {pdf_url}...")
 
     pdf_dir.mkdir(exist_ok=True)
@@ -350,7 +350,10 @@ def main():
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:
         cached = _read_cached_version(paper_dir)
-        print(f"⚠ Version drift: cached={cached}, latest={latest}")
+        if cached is None:
+            print(f"No version metadata found, re-fetching to establish record (latest={latest})")
+        else:
+            print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
     has_source = False
