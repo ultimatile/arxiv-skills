@@ -1,6 +1,6 @@
 ---
 name: arxiv-doc-builder
-description: Automatically convert arXiv papers to well-structured Markdown documentation. Invoke with an arXiv ID to fetch materials (LaTeX source or PDF), convert to Markdown, and generate implementation-ready reference documentation with preserved mathematics and section structure.
+description: Convert arXiv papers to Markdown documentation. Fetches LaTeX source and PDF, converts LaTeX to Markdown via pandoc (happy path). PDF-only papers get a naive single-column fallback — use the specialized PDF scripts for better results.
 ---
 
 # arXiv Document Builder
@@ -12,21 +12,21 @@ Automatically converts arXiv papers into structured Markdown documentation for i
 This skill automatically:
 
 1. **Fetches paper materials from arXiv**
-   - Attempts to download LaTeX source first (preferred for accuracy)
-   - Falls back to PDF if source is unavailable
+   - Downloads LaTeX source and PDF (idempotent — skips if cached)
    - Handles all HTTP requests, extraction, and directory setup
 
-2. **Converts to structured Markdown**
+2. **Converts LaTeX source to structured Markdown** (happy path)
    - LaTeX source → Markdown via pandoc (preserves all math and structure)
-   - PDF → Markdown via text extraction with multiple conversion modes:
-     - Simple single-column conversion (default)
-     - Full double-column conversion for academic papers
-     - Page-wise extraction with mixed column support
    - Preserves mathematical formulas in MathJax/LaTeX format (`$...$`, `$$...$$`)
    - Maintains section hierarchy and document structure
    - Includes abstracts, figures, and references
 
-3. **Generates implementation-ready documentation**
+3. **PDF fallback** (naive — output quality must be verified)
+   - When no LaTeX source is available, `convert-paper` runs `convert_pdf_simple.py` (single-column pdfplumber extraction) as a best-effort fallback
+   - This produces usable output only for simple, single-column papers
+   - For 2-column papers, math-heavy papers, or complex layouts, inspect the output and use the specialized PDF scripts manually (see below)
+
+4. **Generates implementation-ready documentation**
    - Output saved to `{ARXIV_ID}/{ARXIV_ID}.md` under the output directory (default: current working directory)
    - Easy to reference during code implementation
    - Optimized for Claude to read and understand
@@ -57,20 +57,17 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
 - Use absolute paths to control output location precisely.
 
 The orchestrator:
-1. Calls `fetch_paper.py` to download materials (with automatic source→PDF fallback)
+1. Calls `fetch_paper.py` to download source and PDF (idempotent — cached files are reused)
 2. Detects available format (LaTeX source or PDF)
 3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
 4. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
 
 All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
 
-### Automatic Source Detection and Fallback
+### Source Detection
 
-The fetcher tries LaTeX source first, then PDF:
-- **LaTeX source available**: Downloads `.tar.gz`, extracts to `papers/{ID}/source/`, converts with pandoc
-- **PDF only**: Downloads PDF to `papers/{ID}/pdf/`, extracts text with pdfplumber
-
-No manual intervention needed—the skill handles format detection and fallback automatically.
+- **LaTeX source available**: Converts with pandoc — this is the reliable path
+- **PDF only**: Falls back to naive single-column text extraction. Output quality varies and should be inspected. For better results, use the specialized PDF scripts below
 
 ## Output Structure
 
@@ -86,7 +83,7 @@ Output location: `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md` (default output-dir is 
 
 ## PDF Conversion Scripts
 
-Three specialized scripts for direct PDF conversion:
+These scripts are **not called by `convert-paper`** — they exist for manual or agent-driven use when the naive fallback produces poor output. Iterate by trying different scripts and inspecting results.
 
 ### convert_pdf_simple.py
 
