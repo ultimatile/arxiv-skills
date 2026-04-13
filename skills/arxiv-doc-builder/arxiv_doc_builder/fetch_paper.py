@@ -322,17 +322,6 @@ def main():
         default=Path("papers"),
         help="Output directory (default: ./papers)"
     )
-    parser.add_argument(
-        "--pdf-only",
-        action="store_true",
-        help="Skip source, fetch PDF only"
-    )
-    parser.add_argument(
-        "--source-only",
-        action="store_true",
-        help="Skip PDF, fetch source only"
-    )
-
     args = parser.parse_args()
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
@@ -356,20 +345,12 @@ def main():
             print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
-    has_source = False
-    has_pdf = False
-
-    # Fetch source unless --pdf-only
-    if not args.pdf_only:
-        has_source = fetch_source(
-            args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
-        )
-
-    # Fetch PDF unless --source-only
-    if not args.source_only:
-        has_pdf = fetch_pdf(
-            args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
-        )
+    has_source = fetch_source(
+        args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
+    )
+    has_pdf = fetch_pdf(
+        args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
+    )
 
     # Record version after successful fetch
     if latest is not None and (has_source or has_pdf):
@@ -383,7 +364,7 @@ def main():
     if has_pdf:
         print("✓ PDF available")
 
-    if not has_source and not has_pdf:
+    if not (has_source or has_pdf):
         print("✗ Failed to fetch any materials")
         sys.exit(1)
 
