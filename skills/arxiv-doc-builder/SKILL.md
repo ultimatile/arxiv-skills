@@ -1,6 +1,6 @@
 ---
 name: arxiv-doc-builder
-description: Convert arXiv papers to Markdown documentation. Fetches LaTeX source and PDF, converts LaTeX to Markdown via pandoc (happy path). PDF-only papers get a naive single-column fallback — use the specialized PDF scripts for better results.
+description: Convert arXiv papers to Markdown documentation. Fetches available materials from arXiv (LaTeX source when available + PDF), converts LaTeX to Markdown via pandoc (happy path). PDF-only papers get a naive single-column fallback — use the specialized PDF scripts for better results.
 ---
 
 # arXiv Document Builder
@@ -57,7 +57,7 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
 - Use absolute paths to control output location precisely.
 
 The orchestrator:
-1. Calls `fetch_paper.py` to download source and PDF (idempotent — cached files are reused)
+1. Calls `fetch_paper.py` to download available materials — source if available + PDF (idempotent — cached files are reused)
 2. Detects available format (LaTeX source or PDF)
 3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
 4. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
