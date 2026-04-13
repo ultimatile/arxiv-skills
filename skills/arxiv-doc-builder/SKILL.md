@@ -12,7 +12,7 @@ Automatically converts arXiv papers into structured Markdown documentation for i
 This skill automatically:
 
 1. **Fetches paper materials from arXiv**
-   - Downloads LaTeX source and PDF (idempotent — skips if cached)
+   - Attempts to download LaTeX source (preferred) and PDF (idempotent — skips if cached)
    - Handles all HTTP requests, extraction, and directory setup
 
 2. **Converts LaTeX source to structured Markdown** (happy path)
