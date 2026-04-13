@@ -208,7 +208,9 @@ def fetch_source(
         return True
 
     if refresh:
-        print(f"Version drift detected, re-fetching source...")
+        print("Version drift detected, re-fetching source...")
+        # Clear stale source tree so renamed/deleted files don't persist
+        shutil.rmtree(source_dir, ignore_errors=True)
 
     print(f"Fetching source from {source_url}...")
 
