@@ -83,7 +83,7 @@ Output location: `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md` (default output-dir is 
 
 ## PDF Conversion Scripts
 
-These scripts are **not called by `convert-paper`** — they exist for manual or agent-driven use when the naive fallback produces poor output. Iterate by trying different scripts and inspecting results.
+`convert-paper` only calls `convert_pdf_simple.py` as a naive fallback. The other scripts below are for manual or agent-driven use when the naive output is insufficient. Iterate by trying different scripts and inspecting results.
 
 ### convert_pdf_simple.py
 
