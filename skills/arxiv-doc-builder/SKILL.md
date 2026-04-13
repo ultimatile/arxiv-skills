@@ -133,7 +133,21 @@ python arxiv_doc_builder/convert_pdf_with_vision.py paper.pdf --dpi 300 --column
 
 This creates page images (with optional column splitting) that can be read manually with Claude's vision capabilities for maximum accuracy. This is NOT part of the automatic workflow—use it only when automatic conversion produces poor results.
 
-See [references/pdf-conversion.md](references/pdf-conversion.md) for details on vision-based conversion.
+### PDF Conversion Quality
+
+PDF conversion is inherently lossy:
+- Math formulas are not in LaTeX format
+- Complex layouts (2-column with column-spanning elements) may break reading order
+- Tables may need manual fixing
+- References may be malformed
+
+PDF conversion is acceptable when no LaTeX source is available and the paper is primarily text. For math-heavy papers, use the vision-based approach above or keep the PDF as the primary reference.
+
+**Fallback strategy for complex papers:**
+1. Extract structure and text via `convert_pdf_simple.py`
+2. Keep PDF link for reference
+3. Use vision-based conversion for pages with dense math
+4. Focus on readable prose sections
 
 ## Troubleshooting: Multiple \documentclass Files
 
