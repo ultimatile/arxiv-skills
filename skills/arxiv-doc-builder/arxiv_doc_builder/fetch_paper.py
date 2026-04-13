@@ -6,15 +6,87 @@ Tries to fetch LaTeX source first, falls back to PDF if unavailable.
 """
 
 import argparse
+import json
+import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Optional
+
+
+_METADATA_FILE = ".arxiv-fetch.json"
 
 
 def safe_arxiv_id(arxiv_id: str) -> str:
     """Normalize arXiv ID for filesystem paths."""
     return arxiv_id.replace("/", "_")
+
+
+def _normalize_arxiv_id_for_api(arxiv_id: str) -> str:
+    """Zero-pad new-style IDs so the arXiv API accepts them.
+
+    Duplicated from convert_latex.normalize_arxiv_id to keep fetch_paper
+    self-contained (no cross-module imports).
+    """
+    m = re.match(r"^(\d{4})\.(\d+)(v\d+)?$", arxiv_id)
+    if not m:
+        return arxiv_id
+    yymm, num, version = m.group(1), m.group(2), m.group(3) or ""
+    width = 5 if int(yymm) >= 1501 else 4
+    return f"{yymm}.{num.zfill(width)}{version}"
+
+
+def _get_latest_version(arxiv_id: str) -> Optional[str]:
+    """Query the arXiv API for the latest version string.
+
+    Returns e.g. ``"2409.03108v2"`` on success, or ``None`` on any
+    failure (network error, parse error, offline). ``None`` signals
+    that callers should trust the cache.
+    """
+    normalized = _normalize_arxiv_id_for_api(arxiv_id)
+    url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode(
+        {"id_list": normalized}
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            tree = ET.parse(resp)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        id_elem = tree.find(".//atom:entry/atom:id", ns)
+        if id_elem is None or not id_elem.text:
+            return None
+        # <id>http://arxiv.org/abs/2409.03108v2</id> → "2409.03108v2"
+        # <id>http://arxiv.org/abs/hep-th/9901001v2</id> → "hep-th/9901001v2"
+        path = urllib.parse.urlparse(id_elem.text).path
+        if path.startswith("/abs/"):
+            return path[len("/abs/"):] or None
+        return id_elem.text.rsplit("/", 1)[-1]
+    except Exception:
+        return None
+
+
+def _read_cached_version(paper_dir: Path) -> Optional[str]:
+    """Read the previously recorded arXiv version, or None."""
+    meta = paper_dir / _METADATA_FILE
+    if not meta.exists():
+        return None
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+        return data.get("version")
+    except Exception:
+        return None
+
+
+def _write_cached_version(paper_dir: Path, version: str) -> None:
+    """Record the fetched arXiv version."""
+    meta = paper_dir / _METADATA_FILE
+    meta.write_text(
+        json.dumps({"version": version}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 def _detect_file_type(path: Path) -> str:
@@ -94,7 +166,27 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
     return True
 
 
-def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
+def _needs_refresh(paper_dir: Path, latest: Optional[str]) -> bool:
+    """Decide whether cached artifacts should be re-fetched.
+
+    Returns True when the arXiv API reports a newer version than what
+    is recorded locally. Returns False (trust cache) when the API is
+    unreachable or the versions match.
+    """
+    if latest is None:
+        return False
+    cached = _read_cached_version(paper_dir)
+    if cached is None:
+        # No metadata — either a pre-metadata cache or first run.
+        # Re-fetch to establish a version record.
+        return True
+    return cached != latest
+
+
+def fetch_source(
+    arxiv_id: str, output_dir: Path, file_id: str,
+    *, refresh: bool = False,
+) -> bool:
     """
     Fetch LaTeX source from arXiv.
 
@@ -104,7 +196,8 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
       - plain text .tex file (rare)
 
     Idempotent: if the source directory already contains at least one
-    ``.tex`` file, the network fetch is skipped entirely.
+    ``.tex`` file, the network fetch is skipped — unless ``refresh``
+    is True (version drift detected).
 
     Returns:
         True if source is available (freshly fetched or already present),
@@ -114,9 +207,13 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     downloaded = output_dir / f"{file_id}-src.tar.gz"
     source_dir = output_dir / "source"
 
-    if source_dir.exists() and any(source_dir.rglob("*.tex")):
+    if source_dir.exists() and any(source_dir.rglob("*.tex")) and not refresh:
         print(f"✓ Source already present at {source_dir}, skipping fetch")
         return True
+
+    if refresh:
+        # Clear stale source tree so renamed/deleted files don't persist
+        shutil.rmtree(source_dir, ignore_errors=True)
 
     print(f"Fetching source from {source_url}...")
 
@@ -171,13 +268,16 @@ def fetch_source(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     return True
 
 
-def fetch_pdf(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
+def fetch_pdf(
+    arxiv_id: str, output_dir: Path, file_id: str,
+    *, refresh: bool = False,
+) -> bool:
     """
     Fetch PDF from arXiv.
 
     Idempotent: if the PDF file already exists and is non-empty, the
-    network fetch is skipped. The non-empty check guards against a
-    previous interrupted curl leaving a zero-byte placeholder.
+    network fetch is skipped — unless ``refresh`` is True (version
+    drift detected).
 
     Returns:
         True if PDF is available (freshly fetched or already present),
@@ -187,7 +287,7 @@ def fetch_pdf(arxiv_id: str, output_dir: Path, file_id: str) -> bool:
     pdf_dir = output_dir / "pdf"
     pdf_file = pdf_dir / f"{file_id}.pdf"
 
-    if pdf_file.exists() and pdf_file.stat().st_size > 0:
+    if pdf_file.exists() and pdf_file.stat().st_size > 0 and not refresh:
         print(f"✓ PDF already present at {pdf_file}, skipping fetch")
         return True
 
@@ -245,16 +345,35 @@ def main():
     print(f"Output directory: {paper_dir}")
     print()
 
+    # Check for version drift before fetching
+    latest = _get_latest_version(args.arxiv_id)
+    refresh = _needs_refresh(paper_dir, latest)
+    if refresh:
+        cached = _read_cached_version(paper_dir)
+        if cached is None:
+            print(f"No version metadata found, re-fetching to establish record (latest={latest})")
+        else:
+            print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
+        print()
+
     has_source = False
     has_pdf = False
 
     # Fetch source unless --pdf-only
     if not args.pdf_only:
-        has_source = fetch_source(args.arxiv_id, paper_dir, normalized_arxiv_id)
+        has_source = fetch_source(
+            args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
+        )
 
     # Fetch PDF unless --source-only
     if not args.source_only:
-        has_pdf = fetch_pdf(args.arxiv_id, paper_dir, normalized_arxiv_id)
+        has_pdf = fetch_pdf(
+            args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
+        )
+
+    # Record version after successful fetch
+    if latest is not None and (has_source or has_pdf):
+        _write_cached_version(paper_dir, latest)
 
     # Summary
     print()
