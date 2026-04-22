@@ -19,11 +19,11 @@ from typing import Optional
 # ModuleNotFoundError + name check so an ImportError raised *inside*
 # arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
-    from arxiv_doc_builder.arxiv_id import validate_arxiv_id
+    from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
-    from arxiv_id import validate_arxiv_id
+    from arxiv_id import safe_arxiv_id, validate_arxiv_id
 
 
 def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
@@ -232,16 +232,21 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Determine paths
+    # Run safe_arxiv_id through the default paths so legacy IDs like
+    # "hep-th/9901001" don't smuggle a slash into the directory / filename
+    # (which would produce papers/hep-th/9901001/... and mismatch the
+    # fetch-side cache at papers/hep-th_9901001/).
+    safe_id = safe_arxiv_id(args.arxiv_id)
+
     if args.source_dir:
         source_dir = args.source_dir
     else:
-        source_dir = Path("papers") / args.arxiv_id / "source"
+        source_dir = Path("papers") / safe_id / "source"
 
     if args.output:
         output_md = args.output
     else:
-        output_md = Path("papers") / args.arxiv_id / f"{args.arxiv_id}.md"
+        output_md = Path("papers") / safe_id / f"{safe_id}.md"
 
     # Check source directory exists
     if not source_dir.exists():
