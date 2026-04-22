@@ -10,10 +10,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-def safe_arxiv_id(arxiv_id: str) -> str:
-    """Normalize arXiv ID for filesystem paths."""
-    return arxiv_id.replace("/", "_")
+# Importable both as a package member (entry point) and as a bare script.
+try:
+    from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+except ImportError:  # script invocation: script dir is on sys.path[0]
+    from arxiv_id import safe_arxiv_id, validate_arxiv_id
 
 
 def run_script(script_name: str, args: list, use_uv: bool = False) -> int:
@@ -53,6 +54,12 @@ def main():
     )
 
     args = parser.parse_args()
+
+    try:
+        validate_arxiv_id(args.arxiv_id)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
     paper_dir = args.output_dir / normalized_arxiv_id

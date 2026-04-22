@@ -72,7 +72,9 @@ def test_cli_exits_2_on_ambiguity_with_candidates_in_stderr(tmp_path):
         [
             sys.executable,
             str(script),
-            "test-id",
+            # Canonical placeholder so validate_arxiv_id accepts it; the
+            # ambiguity contract is independent of the specific ID.
+            "2409.03108",
             "--source-dir",
             str(tmp_path),
             "--output",
