@@ -10,10 +10,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-def safe_arxiv_id(arxiv_id: str) -> str:
-    """Normalize arXiv ID for filesystem paths."""
-    return arxiv_id.replace("/", "_")
+# Importable both as a package member (entry point) and as a bare script.
+# Narrow to ModuleNotFoundError + name check so an ImportError raised
+# *inside* arxiv_id.py isn't silently masked by the script-mode fallback.
+try:
+    from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
+    from arxiv_id import safe_arxiv_id, validate_arxiv_id
 
 
 def run_script(script_name: str, args: list, use_uv: bool = False) -> int:
@@ -53,6 +58,15 @@ def main():
     )
 
     args = parser.parse_args()
+
+    try:
+        validate_arxiv_id(args.arxiv_id)
+    except ValueError as e:
+        # Exit 1 (generic failure). Exit 2 is reserved for the
+        # "ambiguous main .tex" signal propagated from convert_latex.py
+        # below, which wrappers may retry with --tex-file.
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
     paper_dir = args.output_dir / normalized_arxiv_id

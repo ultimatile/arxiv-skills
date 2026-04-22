@@ -18,7 +18,9 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(tmp_path):
     # only a subdirectory entrypoint. Without the override guard,
     # auto-detection would fall through to the PDF branch and exit with
     # "PDF file not found", ignoring the user's explicit --tex-file.
-    arxiv_id = "test-routing-id"
+    # Use a canonical-form placeholder so validate_arxiv_id accepts it;
+    # the routing contract does not depend on the specific ID.
+    arxiv_id = "2409.03108"
     paper_dir = tmp_path / arxiv_id
     source_dir = paper_dir / "source"
     subdir = source_dir / "sub"

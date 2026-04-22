@@ -15,25 +15,23 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
-
-def normalize_arxiv_id(arxiv_id: str) -> str:
-    """Normalize arXiv ID by zero-padding the numeric part.
-
-    arXiv new-style IDs use YYMM.NNNNN (5 digits) from 1501 onwards,
-    and YYMM.NNNN (4 digits) for 0704-1412. The arXiv website redirects
-    short IDs but the API requires exact format.
-    """
-    m = re.match(r"^(\d{4})\.(\d+)(v\d+)?$", arxiv_id)
-    if not m:
-        return arxiv_id  # old-style (e.g. math/0703001) or already correct
-    yymm, num, version = m.group(1), m.group(2), m.group(3) or ""
-    width = 5 if int(yymm) >= 1501 else 4
-    return f"{yymm}.{num.zfill(width)}{version}"
+# Importable both as a package member and as a bare script. Narrow to
+# ModuleNotFoundError + name check so an ImportError raised *inside*
+# arxiv_id.py isn't silently masked by the script-mode fallback.
+try:
+    from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
+    from arxiv_id import safe_arxiv_id, validate_arxiv_id
 
 
 def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
-    """Fetch title from arXiv API."""
-    arxiv_id = normalize_arxiv_id(arxiv_id)
+    """Fetch title from arXiv API.
+
+    Assumes ``arxiv_id`` has been validated to canonical form; no
+    zero-padding is performed here.
+    """
     url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode({"id_list": arxiv_id})
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
@@ -225,16 +223,30 @@ def main():
 
     args = parser.parse_args()
 
-    # Determine paths
+    try:
+        validate_arxiv_id(args.arxiv_id)
+    except ValueError as e:
+        # Exit 1 (generic failure). Exit 2 is reserved below for the
+        # "ambiguous main .tex" signal, which callers distinguish from
+        # generic failures.
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Run safe_arxiv_id through the default paths so legacy IDs like
+    # "hep-th/9901001" don't smuggle a slash into the directory / filename
+    # (which would produce papers/hep-th/9901001/... and mismatch the
+    # fetch-side cache at papers/hep-th_9901001/).
+    safe_id = safe_arxiv_id(args.arxiv_id)
+
     if args.source_dir:
         source_dir = args.source_dir
     else:
-        source_dir = Path("papers") / args.arxiv_id / "source"
+        source_dir = Path("papers") / safe_id / "source"
 
     if args.output:
         output_md = args.output
     else:
-        output_md = Path("papers") / args.arxiv_id / f"{args.arxiv_id}.md"
+        output_md = Path("papers") / safe_id / f"{safe_id}.md"
 
     # Check source directory exists
     if not source_dir.exists():

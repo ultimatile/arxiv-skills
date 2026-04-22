@@ -7,7 +7,6 @@ Tries to fetch LaTeX source first, falls back to PDF if unavailable.
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -17,27 +16,22 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
+# Importable both as a package member (pytest / entry point) and as a
+# bare script launched via subprocess from convert_paper.py. Narrow to
+# ModuleNotFoundError + name check so that an ImportError raised *inside*
+# arxiv_id.py (transitive missing dep, partial load) is not masked by the
+# fallback — only a genuinely absent top-level package falls through.
+try:
+    from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
+    # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
+    # importable as a top-level module.
+    from arxiv_id import safe_arxiv_id, validate_arxiv_id
+
 
 _METADATA_FILE = ".arxiv-fetch.json"
-
-
-def safe_arxiv_id(arxiv_id: str) -> str:
-    """Normalize arXiv ID for filesystem paths."""
-    return arxiv_id.replace("/", "_")
-
-
-def _normalize_arxiv_id_for_api(arxiv_id: str) -> str:
-    """Zero-pad new-style IDs so the arXiv API accepts them.
-
-    Duplicated from convert_latex.normalize_arxiv_id to keep fetch_paper
-    self-contained (no cross-module imports).
-    """
-    m = re.match(r"^(\d{4})\.(\d+)(v\d+)?$", arxiv_id)
-    if not m:
-        return arxiv_id
-    yymm, num, version = m.group(1), m.group(2), m.group(3) or ""
-    width = 5 if int(yymm) >= 1501 else 4
-    return f"{yymm}.{num.zfill(width)}{version}"
 
 
 def _get_latest_version(arxiv_id: str) -> Optional[str]:
@@ -46,10 +40,12 @@ def _get_latest_version(arxiv_id: str) -> Optional[str]:
     Returns e.g. ``"2409.03108v2"`` on success, or ``None`` on any
     failure (network error, parse error, offline). ``None`` signals
     that callers should trust the cache.
+
+    Assumes ``arxiv_id`` has already been validated to canonical form
+    by ``validate_arxiv_id``; no zero-padding is performed here.
     """
-    normalized = _normalize_arxiv_id_for_api(arxiv_id)
     url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode(
-        {"id_list": normalized}
+        {"id_list": arxiv_id}
     )
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
@@ -323,6 +319,16 @@ def main():
         help="Output directory (default: ./papers)"
     )
     args = parser.parse_args()
+
+    try:
+        validate_arxiv_id(args.arxiv_id)
+    except ValueError as e:
+        # Exit 1 (generic failure) rather than 2: exit 2 is reserved for
+        # "ambiguous main .tex" per convert_paper.py's child-propagation
+        # contract, and wrappers that retry on 2 with --tex-file would
+        # otherwise misinterpret an ID typo as a source-selection problem.
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
 
