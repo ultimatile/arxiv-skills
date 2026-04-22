@@ -316,8 +316,12 @@ def main():
     try:
         validate_arxiv_id(args.arxiv_id)
     except ValueError as e:
+        # Exit 1 (generic failure) rather than 2: exit 2 is reserved for
+        # "ambiguous main .tex" per convert_paper.py's child-propagation
+        # contract, and wrappers that retry on 2 with --tex-file would
+        # otherwise misinterpret an ID typo as a source-selection problem.
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(1)
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
 

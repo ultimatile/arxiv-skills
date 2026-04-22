@@ -34,6 +34,9 @@ from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
         "math.AG/0703001",
         "nlin.AO/0601001",
         "hep-th/9901001v2",
+        # Legacy boundary months (first and last months of the scheme)
+        "hep-th/9108001",
+        "hep-th/0703999",
         # Legacy IDs with lowercase / hyphenated subject classes
         "physics.optics/0501001",
         "physics.comp-ph/0612001",
@@ -73,6 +76,25 @@ def test_canonical_ids_accepted(arxiv_id):
         "2506.1234567",        # too many digits
         "abcd.12345",
         "",
+        # Semantically impossible: sequences start at 1, not 0.
+        "2506.00000",
+        "1412.0000",
+        "hep-th/9901000",
+        # Semantically impossible: versions start at v1.
+        "2506.01376v0",
+        "1412.1234v0",
+        "hep-th/9901001v0",
+        # Legacy form but YYMM outside the scheme (Apr 2007 onwards is new-style).
+        "hep-th/0704001",
+        "hep-th/0801001",
+        "hep-th/1501001",
+        # Legacy form with pre-arXiv YYMM (before Aug 1991).
+        "hep-th/9101001",
+        "hep-th/9107001",
+        # Legacy form with YY outside any known window.
+        "hep-th/4501001",
+        # Legacy form with invalid month.
+        "hep-th/9913001",
     ],
 )
 def test_noncanonical_ids_rejected(arxiv_id):

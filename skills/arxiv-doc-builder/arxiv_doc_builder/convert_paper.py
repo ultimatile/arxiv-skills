@@ -58,8 +58,11 @@ def main():
     try:
         validate_arxiv_id(args.arxiv_id)
     except ValueError as e:
+        # Exit 1 (generic failure). Exit 2 is reserved for the
+        # "ambiguous main .tex" signal propagated from convert_latex.py
+        # below, which wrappers may retry with --tex-file.
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(1)
 
     normalized_arxiv_id = safe_arxiv_id(args.arxiv_id)
     paper_dir = args.output_dir / normalized_arxiv_id

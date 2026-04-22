@@ -222,8 +222,11 @@ def main():
     try:
         validate_arxiv_id(args.arxiv_id)
     except ValueError as e:
+        # Exit 1 (generic failure). Exit 2 is reserved below for the
+        # "ambiguous main .tex" signal, which callers distinguish from
+        # generic failures.
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(1)
 
     # Determine paths
     if args.source_dir:
