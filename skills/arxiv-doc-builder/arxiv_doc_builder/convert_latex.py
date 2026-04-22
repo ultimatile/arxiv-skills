@@ -15,10 +15,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
-# Importable both as a package member and as a bare script.
+# Importable both as a package member and as a bare script. Narrow to
+# ModuleNotFoundError + name check so an ImportError raised *inside*
+# arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
     from arxiv_doc_builder.arxiv_id import validate_arxiv_id
-except ImportError:  # script invocation: script dir is on sys.path[0]
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
     from arxiv_id import validate_arxiv_id
 
 

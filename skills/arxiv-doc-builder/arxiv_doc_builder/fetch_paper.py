@@ -17,10 +17,17 @@ from pathlib import Path
 from typing import Optional
 
 # Importable both as a package member (pytest / entry point) and as a
-# bare script launched via subprocess from convert_paper.py.
+# bare script launched via subprocess from convert_paper.py. Narrow to
+# ModuleNotFoundError + name check so that an ImportError raised *inside*
+# arxiv_id.py (transitive missing dep, partial load) is not masked by the
+# fallback — only a genuinely absent top-level package falls through.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
-except ImportError:  # script invocation: script dir is on sys.path[0]
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
+    # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
+    # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
 
 
