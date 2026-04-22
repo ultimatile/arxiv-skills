@@ -27,12 +27,18 @@ from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
         "0704.0001",           # first month of new-style scheme
         "1412.7890",           # last 4-digit month
         "1412.0789v3",
-        # Legacy archive/YYMMNNN IDs
+        # Legacy archive/YYMMNNN IDs — short-uppercase subclass form
         "hep-th/9901001",
         "math/0703001",
         "cond-mat/0601234",
         "math.AG/0703001",
+        "nlin.AO/0601001",
         "hep-th/9901001v2",
+        # Legacy IDs with lowercase / hyphenated subject classes
+        "physics.optics/0501001",
+        "physics.comp-ph/0612001",
+        "cond-mat.str-el/0601234",
+        "cond-mat.stat-mech/0601234v2",
     ],
 )
 def test_canonical_ids_accepted(arxiv_id):

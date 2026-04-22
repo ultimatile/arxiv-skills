@@ -20,8 +20,13 @@ import re
 # New-style ID with split YY/MM so we can range-check the boundary month.
 _NEW_STYLE_RE = re.compile(r"^(\d{2})(\d{2})\.(\d{4,5})(v\d+)?$")
 
-# Legacy ID, e.g. hep-th/9901001, math.AG/0703001, cond-mat/0601234v2.
-_LEGACY_RE = re.compile(r"^[a-z]+(-[a-z]+)?(\.[A-Z]{2})?/\d{7}(v\d+)?$")
+# Legacy ID, e.g. hep-th/9901001, math.AG/0703001, cond-mat/0601234v2,
+# physics.optics/0501001, cond-mat.str-el/0601234. Subject classes come
+# in both short-uppercase (math.AG, nlin.CD) and lowercase-with-hyphens
+# (physics.optics, cond-mat.str-el, physics.comp-ph) forms.
+_LEGACY_RE = re.compile(
+    r"^[a-z]+(-[a-z]+)?(\.[A-Za-z]+(-[A-Za-z]+)*)?/\d{7}(v\d+)?$"
+)
 
 # First new-style month (April 2007) and first 5-digit month (January 2015).
 _FIRST_NEW_YYMM = 704
