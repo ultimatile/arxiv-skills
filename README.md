@@ -4,26 +4,7 @@ Custom Claude skills for working with arXiv papers - fetching, searching, and co
 
 ## Available Skills
 
-### 1. arxivterminal
-
-> [!WARNING]
-> **Deprecated — scheduled for removal at the end of April 2026.**
-> The upstream `arxivterminal` CLI is effectively unmaintained, requires building and maintaining a local paper database up front before it can be used (heavier than the lightweight workflow this repo aims to provide), and has fallen behind newer arXiv API features.
-
-CLI tool integration for fetching, searching, and managing arXiv papers locally using the `arxivterminal` command.
-
-**Description:** Enables Claude to work with the arxivterminal CLI tool for fetching new papers by category, searching the local database, viewing papers from specific dates, and managing the local paper database.
-
-**Use when:** You need Claude to manage arXiv papers using the `arxiv` command (from the arxivterminal package).
-
-**Capabilities:**
-
-- Fetch papers from arXiv by category and date range
-- Search local database with semantic search
-- View papers by publication date
-- Check database statistics and manage stored papers
-
-### 2. arxiv-doc-builder
+### 1. arxiv-doc-builder
 
 Automatically convert arXiv papers to well-structured Markdown documentation for implementation reference.
 
@@ -40,7 +21,7 @@ Automatically convert arXiv papers to well-structured Markdown documentation for
 - Section structure and hierarchy preservation
 - Advanced vision-based PDF conversion available for complex formulas
 
-### 3. arxiv-lookup
+### 2. arxiv-lookup
 
 Lightweight scripts for querying the arXiv API directly — get journal DOIs from arXiv IDs, or search for papers by title/keyword.
 
