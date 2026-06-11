@@ -69,13 +69,19 @@ def clean_text(text: str) -> str:
 
 
 def extract_metadata(pdf_path: Path) -> dict:
-    """Extract PDF metadata."""
+    """Extract PDF metadata.
+
+    Missing title/author are returned as ``None`` rather than synthesized, so
+    the frontmatter renders them as null ("unknown stays unknown") instead of
+    fabricating a filename-derived title. Callers supply their own display
+    fallback (e.g. the file stem) for human-facing output.
+    """
     reader = PdfReader(pdf_path)
     meta = reader.metadata
 
     return {
-        'title': meta.title if meta and meta.title else pdf_path.stem,
-        'author': meta.author if meta and meta.author else 'Unknown',
+        'title': meta.title if meta and meta.title else None,
+        'author': meta.author if meta and meta.author else None,
         'subject': meta.subject if meta and meta.subject else '',
         'creator': meta.creator if meta and meta.creator else '',
     }
@@ -259,8 +265,8 @@ def convert_pdf_to_markdown(
 
     # Extract metadata
     metadata = extract_metadata(pdf_path)
-    print(f"Title: {metadata['title']}")
-    print(f"Author: {metadata['author']}")
+    print(f"Title: {metadata['title'] or pdf_path.stem}")
+    print(f"Author: {metadata['author'] or 'Unknown'}")
     print()
 
     # Open PDF with pdfplumber
@@ -282,7 +288,7 @@ def convert_pdf_to_markdown(
             pdf_author = metadata["author"]
             meta = ArxivMetadata(
                 title=metadata["title"],
-                authors=[pdf_author] if pdf_author and pdf_author != "Unknown" else [],
+                authors=[pdf_author] if pdf_author else [],
             )
         header = build_frontmatter(
             meta,

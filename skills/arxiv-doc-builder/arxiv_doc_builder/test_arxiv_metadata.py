@@ -127,6 +127,18 @@ def test_absent_fields_parse_to_none():
     assert parsed["authors"] is None
 
 
+def test_no_metadata_keeps_title_null_not_fabricated():
+    # A PDF with no embedded title and no arXiv id keeps the title null rather
+    # than fabricating one from the file name — "unknown stays unknown".
+    parsed = _parse(
+        build_frontmatter(None, arxiv_id=None, source_type="pdf", conversion_date="d")
+    )
+    assert parsed["title"] is None
+    assert parsed["authors"] is None
+    assert parsed["arxiv_id"] is None
+    assert parsed["source_type"] == "pdf"
+
+
 def test_offline_metadata_keeps_total_schema_with_fallback_title():
     parsed = _parse(
         build_frontmatter(
