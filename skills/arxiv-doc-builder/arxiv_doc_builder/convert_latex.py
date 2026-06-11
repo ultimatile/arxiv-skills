@@ -9,9 +9,6 @@ import argparse
 import re
 import subprocess
 import sys
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
@@ -20,29 +17,12 @@ from typing import Optional
 # arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_doc_builder.arxiv_metadata import build_frontmatter, fetch_metadata
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-
-
-def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
-    """Fetch title from arXiv API.
-
-    Assumes ``arxiv_id`` has been validated to canonical form; no
-    zero-padding is performed here.
-    """
-    url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode({"id_list": arxiv_id})
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            tree = ET.parse(resp)
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-        title_elem = tree.find(".//atom:entry/atom:title", ns)
-        if title_elem is not None and title_elem.text:
-            return re.sub(r"\s+", " ", title_elem.text).strip()
-    except Exception:
-        pass
-    return None
+    from arxiv_metadata import build_frontmatter, fetch_metadata
 
 
 class AmbiguousMainTexError(Exception):
@@ -122,10 +102,20 @@ def convert_with_pandoc(tex_file: Path, output_md: Path) -> bool:
     return True
 
 
-def extract_title_from_latex(source_dir: Path) -> str:
-    """Extract title from LaTeX source files."""
-    for tex_file in source_dir.glob("*.tex"):
-        content = tex_file.read_text(encoding='utf-8', errors='ignore')
+def extract_title_from_latex(tex_file: Path) -> Optional[str]:
+    """Extract the paper title from LaTeX source.
+
+    Reads the selected main ``.tex`` first so the fallback title belongs to the
+    file actually being converted; only if that file carries no ``\\title`` (it
+    may sit in an included preamble) does it scan sibling ``.tex`` files, rather
+    than picking an arbitrary file from the directory. Returns ``None`` when no
+    ``\\title`` is found, so an unknown title stays null in the frontmatter
+    rather than a fabricated placeholder (matching the PDF path).
+    """
+    candidates = [tex_file]
+    candidates += sorted(p for p in tex_file.parent.glob("*.tex") if p != tex_file)
+    for candidate in candidates:
+        content = candidate.read_text(encoding='utf-8', errors='ignore')
         # Match \title{...} handling nested braces
         match = re.search(r'\\title\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}', content)
         if match:
@@ -134,28 +124,32 @@ def extract_title_from_latex(source_dir: Path) -> str:
             title = re.sub(r'\\[a-zA-Z]+\s*', '', title)  # Remove commands
             title = re.sub(r'[{}]', '', title)  # Remove braces
             title = re.sub(r'\s+', ' ', title).strip()  # Normalize whitespace
-            return title
-    return "Unknown Title"
+            return title or None
+    return None
 
 
-def post_process_markdown(md_file: Path, arxiv_id: str, source_dir: Path):
+def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
     """Post-process Markdown for better formatting."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     content = md_file.read_text(encoding='utf-8')
 
-    # Try arXiv API first, fallback to LaTeX parsing
-    title = fetch_title_from_arxiv(arxiv_id) or extract_title_from_latex(source_dir)
-
-    # Add metadata header
-    header = f"""---
-title: "{title}"
-arxiv_id: "{arxiv_id}"
-source_type: "latex"
-conversion_date: "{datetime.now().isoformat()}"
----
-
-"""
+    # A single arXiv fetch supplies the whole provenance frontmatter; the LaTeX
+    # \title of the converted file is only a fallback for the title, and only
+    # when the arXiv fetch did not provide one (offline / not found). Extracting
+    # it lazily avoids a needless file read on the common path. conversion_date
+    # is UTC-aware so the provenance stamp is unambiguous across environments.
+    meta = fetch_metadata(arxiv_id)
+    fallback_title = None
+    if meta is None or not meta.title:
+        fallback_title = extract_title_from_latex(tex_file)
+    header = build_frontmatter(
+        meta,
+        arxiv_id=arxiv_id,
+        source_type="latex",
+        conversion_date=datetime.now(timezone.utc).isoformat(),
+        fallback_title=fallback_title,
+    )
 
     # Fix figure paths (convert to relative paths)
     content = re.sub(
@@ -171,7 +165,7 @@ conversion_date: "{datetime.now().isoformat()}"
     final_content = header + content
     md_file.write_text(final_content, encoding='utf-8')
 
-    print(f"✓ Post-processed Markdown")
+    print("✓ Post-processed Markdown")
 
 
 def copy_figures(source_dir: Path, output_dir: Path):
@@ -307,7 +301,7 @@ def main():
         sys.exit(1)
 
     # Post-process
-    post_process_markdown(output_md, args.arxiv_id, source_dir)
+    post_process_markdown(output_md, args.arxiv_id, tex_file)
 
     # Copy figures
     copy_figures(source_dir, output_md.parent)

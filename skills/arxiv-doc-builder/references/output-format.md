@@ -1,20 +1,68 @@
 # Output Format Specification
 
-## Standard Markdown Structure
+This document has two kinds of content:
 
-Generated documentation follows this template:
+- **Frontmatter (code-generated).** The YAML frontmatter at the top of every
+  converted paper is emitted by `arxiv_doc_builder/arxiv_metadata.py`
+  (`build_frontmatter`), which is the single source of truth for its schema.
+  The block below documents that schema; the code, not this prose, defines it.
+- **Body formatting (agent-facing).** Everything after the frontmatter — math,
+  figures, tables, code, citations — is guidance for an agent cleaning up or
+  authoring the Markdown by hand. There is no code enforcing it, so it lives
+  here.
+
+## Frontmatter
+
+`build_frontmatter` writes one YAML block keyed identically on both conversion
+paths (LaTeX and PDF). The schema is **total**: every key is always present.
+A value that arXiv does not report renders as YAML null (a bare `key:`), which
+a parser reads as `None` — distinguishing "arXiv reported no value" (e.g. a
+preprint with no journal DOI) from a key that was never written.
+
+```yaml
+---
+title: "Paper Title"
+authors: "Author A, Author B, Author C"
+arxiv_id: "2409.03108"
+version: "2409.03108v2"
+published: "2024-09-04"
+primary_category: "cs.AI"
+categories:
+  - "cs.AI"
+  - "cs.CL"
+doi: "10.1145/1234567.1234568"   # or bare `doi:` (null) when arXiv reports none
+journal: "Proc. ACM, 2024"       # or bare `journal:` (null)
+source_type: "latex"             # or "pdf"
+conversion_date: "2025-12-08T10:00:00+00:00"
+abstract: |-
+  Single-paragraph abstract, whitespace-normalized.
+---
+```
+
+Field notes:
+
+- `version` is the full versioned arXiv id (e.g. `2409.03108v2`, legacy
+  `hep-th/9901001v3`), recording which revision was read.
+- `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
+  conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
+- `doi` / `journal` are whatever arXiv's own record carries. Resolving a DOI
+  that arXiv does not carry (e.g. via OpenAlex) is the arxiv-lookup skill's job,
+  not this converter's.
+- When the arXiv fetch fails (offline), the schema still holds: `title` falls
+  back to the LaTeX `\title` or the PDF's embedded title, and the arXiv-only
+  fields render as null. Manual PDF scripts invoked without an id likewise get
+  a valid block with `arxiv_id:` null.
+
+## Body Structure
+
+After the frontmatter, the converted body typically looks like:
 
 ```markdown
-# [Paper Title]
-
-**Authors:** [Author list]
-**arXiv ID:** [ARXIV_ID]
-**Published:** [Date]
-**Categories:** [Categories]
+# Paper Title
 
 ## Abstract
 
-[Abstract text]
+Abstract text (when the source carries it inline).
 
 ## Table of Contents
 
@@ -26,33 +74,22 @@ Generated documentation follows this template:
 
 ## 1. Introduction
 
-[Content...]
+Content...
 
 ### 1.1 Subsection
 
-[Content...]
-
-## 2. Related Work
-
-[Content...]
-
----
-
-## Figures
-
-### Figure 1: [Caption]
-
-![Caption](figures/fig1.png)
-
-[Figure description if available]
+Content...
 
 ---
 
 ## References
 
 [1] Author et al. Title. Conference/Journal, Year.
-[2] ...
 ```
+
+The abstract is also captured in the frontmatter (`abstract:`), so a consumer
+can read it from a fixed location even when the body extraction drops it — a
+common case in the PDF-only fallback.
 
 ## Mathematics Formatting
 
@@ -146,29 +183,13 @@ The method \cite{smith2023} shows promising results.
 [2] Jones, B. (2022). Another Paper. *Journal Name*, 15(3), 789-801.
 ```
 
-## Metadata Header
-
-Include at top of document:
-
-```markdown
----
-title: "Paper Title"
-authors: "Author A, Author B, Author C"
-arxiv_id: "2409.03108"
-published: "2024-09-04"
-categories: "cs.AI, cs.CL"
-source_type: "latex"  # or "pdf"
-conversion_date: "2025-12-08"
----
-```
-
 ## File Organization
 
 ```
 papers/
 └── 2409.03108/
-    ├── 2409.03108.md                # Main document (paper content only)
-    ├── 2409.03108.conversion.toml   # Conversion metadata
+    ├── 2409.03108.md                # Main document (frontmatter + paper content)
+    ├── .arxiv-fetch.json            # Fetch-side version record (drift detection)
     ├── figures/
     │   ├── fig1.png
     │   ├── fig2.png
@@ -184,85 +205,7 @@ papers/
         └── 2409.03108.pdf           # Original PDF
 ```
 
-## Conversion Metadata
-
-Store conversion information in a separate TOML file to keep the Markdown clean and focused on paper content.
-
-### Example: LaTeX Source Conversion
-
-`2409.03108.conversion.toml`:
-```toml
-arxiv_id = "2409.03108"
-title = "Paper Title"
-authors = "Author A, Author B, Author C"
-published = "2024-09-04"
-categories = ["cs.AI", "cs.CL"]
-
-[conversion]
-date = "2025-12-10"
-source_type = "latex"
-method = "pandoc"
-
-[quality]
-math_accuracy = "high"
-figures_extracted = 12
-figures_total = 12
-tables_extracted = 3
-notes = [
-    "All equations preserved in LaTeX notation",
-    "Complete LaTeX source conversion"
-]
-```
-
-### Example: Vision-Based PDF Conversion
-
-`1981.12345.conversion.toml`:
-```toml
-arxiv_id = "1981.12345"
-title = "Hamiltonian Studies of the d = 2 Ashkin-Teller Model"
-authors = "Kohmoto, M., et al."
-published = "1981-06-15"
-categories = ["cond-mat"]
-
-[conversion]
-date = "2025-12-10"
-source_type = "pdf"
-method = "vision"
-dpi = 300
-column_split = true
-
-[quality]
-math_accuracy = "high"
-figures_extracted = 8
-figures_total = 10
-tables_extracted = 2
-notes = [
-    "Vision-based conversion with 300 DPI",
-    "2-column splitting applied for better accuracy",
-    "Small superscripts/subscripts accurately extracted"
-]
-```
-
-### Example: Simple PDF Conversion
-
-`2020.54321.conversion.toml`:
-```toml
-arxiv_id = "2020.54321"
-title = "Modern Paper Example"
-published = "2020-03-15"
-
-[conversion]
-date = "2025-12-10"
-source_type = "pdf"
-method = "simple"  # pdfplumber-based
-
-[quality]
-math_accuracy = "medium"
-figures_extracted = 5
-figures_total = 6
-notes = [
-    "Fast text extraction using pdfplumber",
-    "Some complex formulas may have formatting issues",
-    "Manual verification recommended for mathematical content"
-]
-```
+The provenance metadata lives in the document's YAML frontmatter (see above).
+`.arxiv-fetch.json` is an internal sidecar used only for version-drift
+detection (`{"version": "2409.03108v2"}`); it is not the metadata surface a
+consumer reads.

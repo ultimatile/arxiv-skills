@@ -32,6 +32,10 @@ def main():
         type=Path,
         help="Output Markdown file path (default: same name as PDF with .md extension)"
     )
+    parser.add_argument(
+        "--arxiv-id",
+        help="arXiv ID for authoritative frontmatter metadata (optional)"
+    )
 
     args = parser.parse_args()
 
@@ -46,7 +50,8 @@ def main():
         pdf_path=args.pdf_path,
         output_path=output_path,
         pages_to_extract=None,  # All pages
-        double_column_pages=None  # Single-column
+        double_column_pages=None,  # Single-column
+        arxiv_id=args.arxiv_id,
     )
 
 

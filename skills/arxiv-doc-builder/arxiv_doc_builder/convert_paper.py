@@ -138,7 +138,13 @@ def main():
 
         rc = run_script(
             "convert_pdf_simple.py",
-            [str(pdf_file), "-o", str(paper_dir / f"{normalized_arxiv_id}.md")],
+            [
+                str(pdf_file),
+                "-o",
+                str(paper_dir / f"{normalized_arxiv_id}.md"),
+                "--arxiv-id",
+                args.arxiv_id,
+            ],
             use_uv=True,
         )
         if rc != 0:

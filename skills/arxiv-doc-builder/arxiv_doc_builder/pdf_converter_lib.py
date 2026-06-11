@@ -5,10 +5,26 @@ Shared library for PDF to Markdown conversion.
 This module provides common functions used by the PDF converter scripts.
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Set
 import pdfplumber
 from pypdf import PdfReader
+
+# Importable both as a package member (pytest) and as a bare sibling module
+# under `uv run --no-project` (the PDF scripts add their own dir to sys.path).
+# Narrow to a missing top-level package so an error inside the module is not
+# masked. arxiv_metadata is stdlib-only, so it imports under the uv env too.
+try:
+    from arxiv_doc_builder.arxiv_metadata import (
+        ArxivMetadata,
+        build_frontmatter,
+        fetch_metadata,
+    )
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
+    from arxiv_metadata import ArxivMetadata, build_frontmatter, fetch_metadata
 
 
 def parse_page_ranges(range_str: Optional[str]) -> Set[int]:
@@ -53,13 +69,19 @@ def clean_text(text: str) -> str:
 
 
 def extract_metadata(pdf_path: Path) -> dict:
-    """Extract PDF metadata."""
+    """Extract PDF metadata.
+
+    Missing title/author are returned as ``None`` rather than synthesized, so
+    the frontmatter renders them as null ("unknown stays unknown") instead of
+    fabricating a filename-derived title. Callers supply their own display
+    fallback (e.g. the file stem) for human-facing output.
+    """
     reader = PdfReader(pdf_path)
     meta = reader.metadata
 
     return {
-        'title': meta.title if meta and meta.title else pdf_path.stem,
-        'author': meta.author if meta and meta.author else 'Unknown',
+        'title': meta.title if meta and meta.title else None,
+        'author': meta.author if meta and meta.author else None,
         'subject': meta.subject if meta and meta.subject else '',
         'creator': meta.creator if meta and meta.creator else '',
     }
@@ -214,7 +236,8 @@ def convert_pdf_to_markdown(
     pdf_path: Path,
     output_path: Path,
     pages_to_extract: Optional[Set[int]] = None,
-    double_column_pages: Optional[Set[int]] = None
+    double_column_pages: Optional[Set[int]] = None,
+    arxiv_id: Optional[str] = None,
 ) -> None:
     """
     Convert PDF to Markdown using pdfplumber.
@@ -224,6 +247,10 @@ def convert_pdf_to_markdown(
         output_path: Path to output Markdown file
         pages_to_extract: Set of page numbers to extract (1-indexed). If None, extract all pages.
         double_column_pages: Set of page numbers to process as double-column (1-indexed)
+        arxiv_id: arXiv ID for authoritative metadata. When given, the arXiv
+            record drives the frontmatter; when omitted (manual PDF scripts) or
+            the fetch fails, the PDF's embedded title/author are used and the
+            arXiv-only fields render as null.
     """
     if double_column_pages is None:
         double_column_pages = set()
@@ -238,8 +265,8 @@ def convert_pdf_to_markdown(
 
     # Extract metadata
     metadata = extract_metadata(pdf_path)
-    print(f"Title: {metadata['title']}")
-    print(f"Author: {metadata['author']}")
+    print(f"Title: {metadata['title'] or pdf_path.stem}")
+    print(f"Author: {metadata['author'] or 'Unknown'}")
     print()
 
     # Open PDF with pdfplumber
@@ -251,21 +278,26 @@ def convert_pdf_to_markdown(
         # Prepare markdown content
         markdown_parts = []
 
-        # Add metadata header
-        page_info = f"{len(pages_to_extract)} pages" if pages_to_extract else f"{total_pages} pages"
-        header = f"""# {metadata['title']}
-
-**Author:** {metadata['author']}
-
-**Source:** `{pdf_path.name}`
-
-**Converted:** PDF to Markdown using pdfplumber
-
-**Pages:** {page_info}
-
----
-
-"""
+        # Unified YAML frontmatter (same schema as the LaTeX path). When an
+        # arXiv id is available its record is authoritative; otherwise fall
+        # back to the PDF's embedded title/author, leaving arXiv-only fields
+        # null. The old bold "Source/Converted/Pages" header is intentionally
+        # dropped in favour of this single provenance surface.
+        meta = fetch_metadata(arxiv_id) if arxiv_id else None
+        if meta is None:
+            pdf_author = metadata["author"]
+            meta = ArxivMetadata(
+                title=metadata["title"],
+                authors=[pdf_author] if pdf_author else [],
+            )
+        header = build_frontmatter(
+            meta,
+            arxiv_id=arxiv_id,
+            source_type="pdf",
+            # UTC-aware so the provenance stamp is unambiguous across environments.
+            conversion_date=datetime.now(timezone.utc).isoformat(),
+            fallback_title=metadata["title"],
+        )
         markdown_parts.append(header)
 
         # Process each page

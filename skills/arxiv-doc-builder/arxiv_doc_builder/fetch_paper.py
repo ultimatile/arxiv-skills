@@ -10,9 +10,6 @@ import json
 import shutil
 import subprocess
 import sys
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
@@ -23,12 +20,14 @@ from typing import Optional
 # fallback — only a genuinely absent top-level package falls through.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_doc_builder.arxiv_metadata import fetch_metadata
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
     # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_metadata import fetch_metadata
 
 
 _METADATA_FILE = ".arxiv-fetch.json"
@@ -41,27 +40,16 @@ def _get_latest_version(arxiv_id: str) -> Optional[str]:
     failure (network error, parse error, offline). ``None`` signals
     that callers should trust the cache.
 
+    Delegates to the shared ``fetch_metadata`` so the Atom request/parse
+    idiom lives in one place; the returned ``version`` is the full versioned
+    tail this drift check persists to the sidecar unchanged. A short timeout
+    keeps the pre-fetch probe lightweight.
+
     Assumes ``arxiv_id`` has already been validated to canonical form
     by ``validate_arxiv_id``; no zero-padding is performed here.
     """
-    url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode(
-        {"id_list": arxiv_id}
-    )
-    try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
-            tree = ET.parse(resp)
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-        id_elem = tree.find(".//atom:entry/atom:id", ns)
-        if id_elem is None or not id_elem.text:
-            return None
-        # <id>http://arxiv.org/abs/2409.03108v2</id> → "2409.03108v2"
-        # <id>http://arxiv.org/abs/hep-th/9901001v2</id> → "hep-th/9901001v2"
-        path = urllib.parse.urlparse(id_elem.text).path
-        if path.startswith("/abs/"):
-            return path[len("/abs/"):] or None
-        return id_elem.text.rsplit("/", 1)[-1]
-    except Exception:
-        return None
+    meta = fetch_metadata(arxiv_id, timeout=5)
+    return meta.version if meta else None
 
 
 def _read_cached_version(paper_dir: Path) -> Optional[str]:

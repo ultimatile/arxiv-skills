@@ -13,3 +13,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["arxiv_doc_builder"]
+
+[dependency-groups]
+dev = ["pytest>=8", "pyyaml>=6"]
