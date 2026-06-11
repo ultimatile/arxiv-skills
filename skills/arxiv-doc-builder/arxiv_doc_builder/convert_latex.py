@@ -102,13 +102,15 @@ def convert_with_pandoc(tex_file: Path, output_md: Path) -> bool:
     return True
 
 
-def extract_title_from_latex(tex_file: Path) -> str:
+def extract_title_from_latex(tex_file: Path) -> Optional[str]:
     """Extract the paper title from LaTeX source.
 
     Reads the selected main ``.tex`` first so the fallback title belongs to the
     file actually being converted; only if that file carries no ``\\title`` (it
     may sit in an included preamble) does it scan sibling ``.tex`` files, rather
-    than picking an arbitrary file from the directory.
+    than picking an arbitrary file from the directory. Returns ``None`` when no
+    ``\\title`` is found, so an unknown title stays null in the frontmatter
+    rather than a fabricated placeholder (matching the PDF path).
     """
     candidates = [tex_file]
     candidates += sorted(p for p in tex_file.parent.glob("*.tex") if p != tex_file)
@@ -122,8 +124,8 @@ def extract_title_from_latex(tex_file: Path) -> str:
             title = re.sub(r'\\[a-zA-Z]+\s*', '', title)  # Remove commands
             title = re.sub(r'[{}]', '', title)  # Remove braces
             title = re.sub(r'\s+', ' ', title).strip()  # Normalize whitespace
-            return title
-    return "Unknown Title"
+            return title or None
+    return None
 
 
 def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
