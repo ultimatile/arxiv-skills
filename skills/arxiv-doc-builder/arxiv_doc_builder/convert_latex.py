@@ -9,9 +9,6 @@ import argparse
 import re
 import subprocess
 import sys
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
@@ -20,29 +17,12 @@ from typing import Optional
 # arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_doc_builder.arxiv_metadata import build_frontmatter, fetch_metadata
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-
-
-def fetch_title_from_arxiv(arxiv_id: str) -> Optional[str]:
-    """Fetch title from arXiv API.
-
-    Assumes ``arxiv_id`` has been validated to canonical form; no
-    zero-padding is performed here.
-    """
-    url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode({"id_list": arxiv_id})
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            tree = ET.parse(resp)
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-        title_elem = tree.find(".//atom:entry/atom:title", ns)
-        if title_elem is not None and title_elem.text:
-            return re.sub(r"\s+", " ", title_elem.text).strip()
-    except Exception:
-        pass
-    return None
+    from arxiv_metadata import build_frontmatter, fetch_metadata
 
 
 class AmbiguousMainTexError(Exception):
@@ -144,18 +124,16 @@ def post_process_markdown(md_file: Path, arxiv_id: str, source_dir: Path):
 
     content = md_file.read_text(encoding='utf-8')
 
-    # Try arXiv API first, fallback to LaTeX parsing
-    title = fetch_title_from_arxiv(arxiv_id) or extract_title_from_latex(source_dir)
-
-    # Add metadata header
-    header = f"""---
-title: "{title}"
-arxiv_id: "{arxiv_id}"
-source_type: "latex"
-conversion_date: "{datetime.now().isoformat()}"
----
-
-"""
+    # Single arXiv fetch supplies the whole provenance frontmatter; the LaTeX
+    # \title is only a fallback for the title when the network is unreachable.
+    meta = fetch_metadata(arxiv_id)
+    header = build_frontmatter(
+        meta,
+        arxiv_id=arxiv_id,
+        source_type="latex",
+        conversion_date=datetime.now().isoformat(),
+        fallback_title=extract_title_from_latex(source_dir),
+    )
 
     # Fix figure paths (convert to relative paths)
     content = re.sub(
@@ -171,7 +149,7 @@ conversion_date: "{datetime.now().isoformat()}"
     final_content = header + content
     md_file.write_text(final_content, encoding='utf-8')
 
-    print(f"✓ Post-processed Markdown")
+    print("✓ Post-processed Markdown")
 
 
 def copy_figures(source_dir: Path, output_dir: Path):
