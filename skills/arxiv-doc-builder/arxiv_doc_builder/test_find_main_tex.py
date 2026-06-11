@@ -15,6 +15,7 @@ import pytest
 
 from arxiv_doc_builder.convert_latex import (
     AmbiguousMainTexError,
+    extract_title_from_latex,
     find_main_tex,
 )
 
@@ -91,3 +92,32 @@ def test_cli_exits_2_on_ambiguity_with_candidates_in_stderr(tmp_path):
     assert "alpha.tex" in result.stderr
     assert "beta.tex" in result.stderr
     assert "--tex-file" in result.stderr
+
+
+def test_extract_title_uses_selected_tex_not_arbitrary_sibling(tmp_path):
+    # Contract: the fallback title must come from the file actually converted,
+    # not an arbitrary .tex picked from the source directory.
+    (tmp_path / "main.tex").write_text(r"\title{Correct Main Title}", encoding="utf-8")
+    (tmp_path / "supplement.tex").write_text(
+        r"\title{Wrong Supplement Title}", encoding="utf-8"
+    )
+
+    assert extract_title_from_latex(tmp_path / "main.tex") == "Correct Main Title"
+    assert extract_title_from_latex(tmp_path / "supplement.tex") == "Wrong Supplement Title"
+
+
+def test_extract_title_falls_back_to_sibling_when_selected_has_none(tmp_path):
+    # The \title may sit in an included preamble; fall back to siblings rather
+    # than reporting no title.
+    (tmp_path / "main.tex").write_text(r"\documentclass{article}", encoding="utf-8")
+    (tmp_path / "preamble.tex").write_text(r"\title{Title In Preamble}", encoding="utf-8")
+
+    assert extract_title_from_latex(tmp_path / "main.tex") == "Title In Preamble"
+
+
+def test_extract_title_returns_none_when_absent(tmp_path):
+    # No \title anywhere -> None, so the frontmatter title stays null rather than
+    # a fabricated placeholder.
+    (tmp_path / "main.tex").write_text(r"\documentclass{article}", encoding="utf-8")
+
+    assert extract_title_from_latex(tmp_path / "main.tex") is None
