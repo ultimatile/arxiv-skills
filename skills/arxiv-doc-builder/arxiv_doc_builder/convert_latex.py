@@ -120,18 +120,20 @@ def extract_title_from_latex(source_dir: Path) -> str:
 
 def post_process_markdown(md_file: Path, arxiv_id: str, source_dir: Path):
     """Post-process Markdown for better formatting."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     content = md_file.read_text(encoding='utf-8')
 
     # Single arXiv fetch supplies the whole provenance frontmatter; the LaTeX
     # \title is only a fallback for the title when the network is unreachable.
+    # conversion_date is UTC-aware so the provenance stamp is unambiguous across
+    # environments.
     meta = fetch_metadata(arxiv_id)
     header = build_frontmatter(
         meta,
         arxiv_id=arxiv_id,
         source_type="latex",
-        conversion_date=datetime.now().isoformat(),
+        conversion_date=datetime.now(timezone.utc).isoformat(),
         fallback_title=extract_title_from_latex(source_dir),
     )
 

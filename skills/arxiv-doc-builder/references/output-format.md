@@ -33,7 +33,7 @@ categories:
 doi: "10.1145/1234567.1234568"   # or bare `doi:` (null) when arXiv reports none
 journal: "Proc. ACM, 2024"       # or bare `journal:` (null)
 source_type: "latex"             # or "pdf"
-conversion_date: "2025-12-08T10:00:00"
+conversion_date: "2025-12-08T10:00:00+00:00"
 abstract: |-
   Single-paragraph abstract, whitespace-normalized.
 ---
@@ -44,7 +44,7 @@ Field notes:
 - `version` is the full versioned arXiv id (e.g. `2409.03108v2`, legacy
   `hep-th/9901001v3`), recording which revision was read.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
-  conversion ran. They are deliberately distinct.
+  conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
 - `doi` / `journal` are whatever arXiv's own record carries. Resolving a DOI
   that arXiv does not carry (e.g. via OpenAlex) is the arxiv-lookup skill's job,
   not this converter's.

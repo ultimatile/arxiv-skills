@@ -5,7 +5,7 @@ Shared library for PDF to Markdown conversion.
 This module provides common functions used by the PDF converter scripts.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Set
 import pdfplumber
@@ -288,7 +288,8 @@ def convert_pdf_to_markdown(
             meta,
             arxiv_id=arxiv_id,
             source_type="pdf",
-            conversion_date=datetime.now().isoformat(),
+            # UTC-aware so the provenance stamp is unambiguous across environments.
+            conversion_date=datetime.now(timezone.utc).isoformat(),
             fallback_title=metadata["title"],
         )
         markdown_parts.append(header)
