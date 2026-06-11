@@ -65,17 +65,39 @@ class ArxivMetadata:
     abstract: Optional[str] = None
 
 
-def _normalize(text: Optional[str]) -> Optional[str]:
-    """Collapse Atom text whitespace to single spaces.
+def _is_yaml_printable(codepoint: int) -> bool:
+    """Whether a code point may appear raw in YAML text.
 
-    arXiv Atom text fields (title, author names, journal_ref, summary) are
-    line-wrapped in the served XML. Collapsing keeps the frontmatter stable and
-    single-line so a double-quoted scalar never has to carry an embedded
-    newline. Returns ``None`` for empty/whitespace-only input.
+    Mirrors YAML's ``c-printable`` production (which a parser's reader enforces
+    on the whole stream, before quoting is even considered). Code points outside
+    this set — C0/C1 controls, DEL, surrogates, the U+FFFE/U+FFFF noncharacters —
+    are either escaped (in a double-quoted scalar) or stripped (during
+    normalization, for the literal block scalar that cannot escape).
+    """
+    return (
+        codepoint in (0x09, 0x0A, 0x0D, 0x85)
+        or 0x20 <= codepoint <= 0x7E
+        or 0xA0 <= codepoint <= 0xD7FF
+        or 0xE000 <= codepoint <= 0xFFFD
+        or 0x10000 <= codepoint <= 0x10FFFF
+    )
+
+
+def _normalize(text: Optional[str]) -> Optional[str]:
+    """Make Atom text safe and stable for the frontmatter.
+
+    Two steps: drop characters YAML cannot carry (see ``_is_yaml_printable``),
+    then collapse whitespace runs to single spaces. Stripping is required
+    because the abstract is emitted as a literal block scalar, which — unlike a
+    double-quoted scalar — cannot escape a stray control character; XML 1.0
+    permits raw C1 controls (0x80–0x9F) that YAML forbids, so an arXiv summary
+    can carry one. Collapsing keeps every field single-line. Returns ``None``
+    for empty/whitespace-only input.
     """
     if text is None:
         return None
-    collapsed = re.sub(r"\s+", " ", text).strip()
+    printable = "".join(ch for ch in text if _is_yaml_printable(ord(ch)))
+    collapsed = re.sub(r"\s+", " ", printable).strip()
     return collapsed or None
 
 
@@ -152,33 +174,16 @@ def fetch_metadata(arxiv_id: str, *, timeout: int = 10) -> Optional[ArxivMetadat
     )
 
 
-def _is_yaml_printable(codepoint: int) -> bool:
-    """Whether a code point may appear raw in YAML text.
-
-    Mirrors YAML's ``c-printable`` production (which a parser's reader enforces
-    on the whole stream, before quoting is even considered). Any code point
-    outside this set — C0/C1 controls, DEL, surrogates, the U+FFFE/U+FFFF
-    noncharacters — must be escaped even inside a double-quoted scalar.
-    """
-    return (
-        codepoint in (0x09, 0x0A, 0x0D, 0x85)
-        or 0x20 <= codepoint <= 0x7E
-        or 0xA0 <= codepoint <= 0xD7FF
-        or 0xE000 <= codepoint <= 0xFFFD
-        or 0x10000 <= codepoint <= 0x10FFFF
-    )
-
-
 def _yaml_dq(value: str) -> str:
     """Render ``value`` as a YAML double-quoted scalar.
 
     Total over arbitrary strings: backslash and double-quote are escaped, the
     line-breaking whitespace is escaped (``\\n`` / ``\\t`` / ``\\r``) to keep the
     scalar single-line, and any code point YAML cannot carry raw (see
-    ``_is_yaml_printable``) is escaped as ``\\xNN`` / ``\\uNNNN``. A caller
-    therefore cannot emit invalid YAML no matter how an ``ArxivMetadata`` was
-    built — e.g. raw PDF-embedded text (a strict UTF-16BE decode can yield
-    U+FFFF) on the PDF fallback path, which never passes Atom-side validation.
+    ``_is_yaml_printable``) is escaped as ``\\xNN`` / ``\\uNNNN``. The text
+    fields are already control-stripped by ``_normalize``; the control escaping
+    here is a backstop for the structured fields (id, version, dates) that skip
+    normalization, so the emitter stays valid for any input.
     """
     out: list[str] = []
     for ch in value:
@@ -220,9 +225,11 @@ def _list_lines(key: str, items: list[str]) -> str:
 def _block_lines(key: str, value: Optional[str]) -> str:
     """A literal block scalar (``key: |-``), or a bare ``key:`` when absent.
 
-    ``value`` is whitespace-normalized upstream to a single paragraph, so the
-    block holds one indented line. The ``-`` chomping indicator drops the
-    trailing newline, so the block ends cleanly before the closing fence.
+    ``value`` must be ``_normalize``-d upstream: a literal block scalar cannot
+    escape, so it relies on normalization having stripped YAML-forbidden
+    characters and collapsed the text to a single line. The ``-`` chomping
+    indicator drops the trailing newline, so the block ends cleanly before the
+    closing fence.
     """
     if value is None:
         return f"{key}:"

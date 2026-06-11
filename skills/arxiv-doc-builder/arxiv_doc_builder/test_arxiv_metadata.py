@@ -175,18 +175,25 @@ def test_pdf_style_raw_author_with_newline_stays_valid_yaml():
     assert parsed["authors"] == "Jane Doe --- affiliation"
 
 
-def test_non_printable_characters_stay_valid_yaml():
-    # Every code point YAML forbids raw must be escaped, otherwise PyYAML's
-    # reader rejects the whole scalar. The PDF fallback path is the reachable
-    # threat: raw pypdf metadata bypasses Atom-side validation and can carry
-    # C0/C1 controls, DEL, or — via a strict UTF-16BE decode of \xff\xff —
-    # the U+FFFF noncharacter.
-    title = "A" + "".join(chr(c) for c in (0x07, 0x1B, 0x80, 0x9F, 0x7F, 0xFFFE, 0xFFFF)) + "B"
-    meta = ArxivMetadata(title=title)
+def test_non_printable_characters_are_stripped_and_yaml_stays_valid():
+    # Control characters and the U+FFFE/U+FFFF noncharacters are garbage in
+    # metadata, and the abstract's literal block scalar cannot escape them, so
+    # normalization drops them outright. The frontmatter must stay parseable on
+    # both the quoted-scalar (title, authors) and block-scalar (abstract) paths.
+    # Reachable inputs: XML 1.0 permits raw C1 controls in an arXiv summary, and
+    # pypdf metadata can yield U+FFFF via a strict UTF-16BE decode of \xff\xff.
+    controls = "".join(chr(c) for c in (0x07, 0x1B, 0x80, 0x9F, 0x7F, 0xFFFE, 0xFFFF))
+    meta = ArxivMetadata(
+        title="A" + controls + "B",
+        authors=["Jo" + controls + "hn"],
+        abstract="Clean" + controls + "Abstract",
+    )
     parsed = _parse(
         build_frontmatter(meta, arxiv_id="x", source_type="pdf", conversion_date="d")
     )
-    assert parsed["title"] == title
+    assert parsed["title"] == "AB"
+    assert parsed["authors"] == "John"
+    assert parsed["abstract"] == "CleanAbstract"
 
 
 # --- version parsing ------------------------------------------------------
