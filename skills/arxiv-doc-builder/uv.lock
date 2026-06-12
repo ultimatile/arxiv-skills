@@ -4,7 +4,7 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "arxiv-doc-builder"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
