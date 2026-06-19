@@ -6,9 +6,13 @@ Uses pandoc for conversion, with post-processing for better formatting.
 """
 
 import argparse
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -72,30 +76,185 @@ def find_main_tex(source_dir: Path) -> Optional[Path]:
     return None
 
 
-def convert_with_pandoc(tex_file: Path, output_md: Path) -> bool:
-    """Convert LaTeX to Markdown using pandoc."""
+def _int_env(name: str, default: int) -> int:
+    """Read an int env override, falling back to ``default`` when the var is
+    unset, non-numeric, or non-positive. Parsing here (rather than inline at the
+    constant) keeps a malformed override — e.g. ``ARXIV_PANDOC_TIMEOUT=3m`` —
+    from raising at import time and crashing every command before it starts.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        print(
+            f"Ignoring non-integer {name}={raw!r}; using {default}.",
+            file=sys.stderr,
+        )
+        return default
+    # Both bounds must be positive: a zero/negative timeout or RSS cap would trip
+    # immediately and kill every conversion, so reject those like a parse error.
+    if value <= 0:
+        print(
+            f"Ignoring non-positive {name}={raw!r}; using {default}.",
+            file=sys.stderr,
+        )
+        return default
+    return value
+
+
+# A clean LaTeX->Markdown conversion finishes in seconds even for a 100-page,
+# 4000-line paper. When pandoc instead runs unbounded, it is trapped recursively
+# expanding a macro it cannot recognize as a no-op — typically a self-referential
+# redefinition pulled in from a *bundled style .sty* in the source dir, since
+# pandoc reads local .sty files matching a \usepackage. Two observed shapes:
+# a CPU spin at flat memory, and a slow leak (~10 MB/s, reaching tens of GB only
+# after many minutes). Both are caught by the WALL-CLOCK TIMEOUT, which is the
+# only reliable control here — GHC's `+RTS -M` heap cap and a macOS RLIMIT_AS
+# were both measured NOT to stop the runaway. The timeout also indirectly bounds
+# memory for the slow-leak shape (peak ~= timeout * leak-rate). The RSS WATCHDOG
+# is defense-in-depth for a hypothetical fast-allocating runaway the timeout
+# alone would not contain in time: it polls real resident memory (immune to the
+# RTS/rlimit quirks) and kills early. See SKILL.md "Troubleshooting: Conversion
+# Hangs / Runaway Memory". Both bounds are env-overridable for odd edge cases.
+PANDOC_TIMEOUT_SECONDS = _int_env("ARXIV_PANDOC_TIMEOUT", 180)
+PANDOC_RSS_CAP_MB = _int_env("ARXIV_PANDOC_RSS_CAP_MB", 8192)
+_RSS_POLL_SECONDS = 1.0
+# Grace to reap the child after SIGKILL before we stop waiting on it; bounding
+# this wait keeps a wedged child (e.g. uninterruptible sleep) from re-hanging
+# the very call these bounds exist to prevent.
+_KILL_REAP_GRACE_SECONDS = 10
+# Shared remediation tail for both runaway-kill diagnostics (timeout + memory).
+# They describe the same root cause and fix, so the guidance is written once.
+_RUNAWAY_REMEDY = (
+    "Move the style-only .sty out of the source directory (or comment its "
+    "\\usepackage line) and re-run. See SKILL.md 'Troubleshooting: Conversion "
+    "Hangs / Runaway Memory'."
+)
+
+
+def _process_rss_mb(pid: int) -> Optional[int]:
+    """Resident set size of a pid in MB, or None if it can't be read.
+
+    Shells out to `ps -o rss=` (KB) rather than taking a psutil dependency;
+    works on the macOS/Linux targets. RSS (not virtual size) is what causes
+    swap thrash, and reading it externally sidesteps the GHC RTS reserving a
+    huge virtual address space that defeats RLIMIT_AS-style caps. `ps` is
+    resolved to an absolute path so a `.`-in-PATH setup can't run a planted
+    binary from the (untrusted) source tree this tool runs subprocesses in.
+    """
+    ps_bin = shutil.which("ps")
+    # shutil.which can return a relative path when PATH holds a relative entry;
+    # that would re-resolve against the untrusted cwd, so require an absolute one.
+    if ps_bin is None or not os.path.isabs(ps_bin):
+        return None
+    try:
+        out = subprocess.run(
+            [ps_bin, "-o", "rss=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    out = out.stdout.strip()
+    return int(out) // 1024 if out.isdigit() else None
+
+
+def convert_with_pandoc(
+    tex_file: Path,
+    output_md: Path,
+    timeout: int = PANDOC_TIMEOUT_SECONDS,
+    rss_cap_mb: int = PANDOC_RSS_CAP_MB,
+) -> bool:
+    """Convert LaTeX to Markdown using pandoc, bounded in wall-clock and memory.
+
+    Returns False (with a diagnostic on stderr) instead of hanging when pandoc
+    runs away. ``timeout`` is the primary, reliable bound; ``rss_cap_mb`` is a
+    secondary watchdog against fast memory growth.
+    """
     print(f"Converting {tex_file.name} to Markdown with pandoc...")
+
+    # Resolve pandoc to an absolute path. cwd below is the extracted (untrusted)
+    # source tree, so a bare "pandoc" with `.` in PATH could exec a planted
+    # binary; an absolute path skips PATH lookup in the child entirely.
+    pandoc_bin = shutil.which("pandoc")
+    # Require an absolute path: shutil.which can yield a relative one from a
+    # relative PATH entry, which would re-resolve against the untrusted cwd.
+    if pandoc_bin is None or not os.path.isabs(pandoc_bin):
+        print("Error: pandoc not found on PATH as an absolute path.", file=sys.stderr)
+        return False
 
     # Use absolute paths
     tex_file_abs = tex_file.resolve()
     output_md_abs = output_md.resolve()
 
-    result = subprocess.run(
-        [
-            "pandoc",
-            str(tex_file_abs),
-            "-f", "latex",
-            "-t", "markdown",
-            "--wrap=none",
-            "--mathjax",
-            "-o", str(output_md_abs)
-        ],
-        capture_output=True,
-        cwd=str(tex_file.parent.resolve())
-    )
+    # Popen (not subprocess.run) so the loop below can poll RSS while pandoc
+    # runs. pandoc writes the document to -o, so stdout stays empty; stderr goes
+    # to a temp file rather than a PIPE so it can fill without us draining it —
+    # a PIPE left unread during the wait loop could deadlock if pandoc emitted
+    # enough to fill the pipe buffer. The temp file is drained once, after exit.
+    with tempfile.TemporaryFile() as errf:
+        proc = subprocess.Popen(
+            [
+                pandoc_bin,
+                str(tex_file_abs),
+                "-f", "latex",
+                "-t", "markdown",
+                "--wrap=none",
+                "--mathjax",
+                "-o", str(output_md_abs),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=errf,
+            cwd=str(tex_file.parent.resolve()),
+        )
 
-    if result.returncode != 0:
-        print(f"Pandoc conversion failed: {result.stderr.decode()}")
+        start = time.monotonic()
+        killed_for = None  # "timeout" | "memory" | None
+        while True:
+            try:
+                proc.wait(timeout=_RSS_POLL_SECONDS)
+                break  # finished on its own
+            except subprocess.TimeoutExpired:
+                pass
+            if time.monotonic() - start > timeout:
+                killed_for = "timeout"
+            else:
+                rss = _process_rss_mb(proc.pid)
+                if rss is not None and rss > rss_cap_mb:
+                    killed_for = "memory"
+            if killed_for:
+                proc.kill()
+                try:
+                    proc.wait(timeout=_KILL_REAP_GRACE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass  # reaping shouldn't outlast SIGKILL; never re-hang here
+                break
+
+        errf.seek(0)
+        stderr = errf.read().decode(errors="replace")
+
+    if killed_for == "timeout":
+        # Not "slow" — a runaway. Name the most common root cause and the fix.
+        print(
+            f"Pandoc did not finish within {timeout}s and was killed. A normal "
+            "conversion takes seconds; a runaway almost always means pandoc is "
+            "recursively expanding a self-referential macro from a bundled "
+            "style .sty in the source directory (pandoc reads local .sty files "
+            f"matching a \\usepackage). {_RUNAWAY_REMEDY}",
+            file=sys.stderr,
+        )
+        return False
+    if killed_for == "memory":
+        print(
+            f"Pandoc exceeded the {rss_cap_mb} MB memory watchdog and was "
+            "killed (same runaway class as the timeout case — usually a "
+            f"self-referential macro from a bundled style .sty). {_RUNAWAY_REMEDY}",
+            file=sys.stderr,
+        )
+        return False
+    if proc.returncode != 0:
+        print(f"Pandoc conversion failed: {stderr}", file=sys.stderr)
         return False
 
     print(f"✓ Converted to {output_md}")
