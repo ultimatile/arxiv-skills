@@ -154,6 +154,11 @@ def test_returns_false_when_pandoc_path_relative(
 
 def test_process_rss_mb_none_when_ps_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: None)
+
+    def _no_run(*_a: object, **_k: object) -> NoReturn:
+        raise AssertionError("subprocess.run must not run when ps is unresolved")
+
+    monkeypatch.setattr(convert_latex.subprocess, "run", _no_run)
     assert _process_rss_mb(1234) is None
 
 
@@ -161,6 +166,12 @@ def test_process_rss_mb_none_when_ps_path_relative(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: "ps")
+
+    # The relative path must be rejected BEFORE any exec, so run must not fire.
+    def _no_run(*_a: object, **_k: object) -> NoReturn:
+        raise AssertionError("subprocess.run must not run for a relative ps path")
+
+    monkeypatch.setattr(convert_latex.subprocess, "run", _no_run)
     assert _process_rss_mb(1234) is None
 
 
