@@ -20,6 +20,14 @@ from arxiv_doc_builder import convert_latex
 from arxiv_doc_builder.convert_latex import _process_rss_mb, convert_with_pandoc
 
 
+@pytest.fixture(autouse=True)
+def _which_resolves_fake(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve any binary to a fake absolute path so the suite does not depend on
+    the host actually having pandoc / ps installed (convert_with_pandoc and
+    _process_rss_mb now go through shutil.which before launching a subprocess)."""
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+
 class _FakeCompleted:
     """Stand-in for subprocess.run's CompletedProcess (stdout only)."""
 
@@ -117,6 +125,23 @@ def test_rss_watchdog_kills_and_returns_false(monkeypatch: pytest.MonkeyPatch) -
     assert proc.killed
 
 
+def test_returns_false_when_pandoc_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fail closed (not hang, not crash) when pandoc cannot be resolved on PATH.
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda name: None)
+
+    def _no_popen(*a: object, **k: object) -> NoReturn:
+        raise AssertionError("Popen must not run when pandoc is unresolved")
+
+    monkeypatch.setattr(convert_latex.subprocess, "Popen", _no_popen)
+
+    assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is False
+
+
+def test_process_rss_mb_none_when_ps_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda name: None)
+    assert _process_rss_mb(1234) is None
+
+
 def test_success_returns_true_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     proc = _FakeProc(finishes=True, returncode=0)
     _patch_popen(monkeypatch, proc)
@@ -180,3 +205,20 @@ def test_int_env_falls_back_on_non_numeric(
     assert convert_latex._int_env("ARXIV_TEST_INT", 7) == 7
     # A malformed override warns on stderr rather than raising (would crash import).
     assert "Ignoring non-integer" in capsys.readouterr().err
+
+
+def test_int_env_falls_back_on_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 0 is syntactically valid but a zero timeout / RSS cap would trip instantly.
+    monkeypatch.setenv("ARXIV_TEST_INT", "0")
+    assert convert_latex._int_env("ARXIV_TEST_INT", 7) == 7
+    assert "Ignoring non-positive" in capsys.readouterr().err
+
+
+def test_int_env_falls_back_on_negative(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ARXIV_TEST_INT", "-5")
+    assert convert_latex._int_env("ARXIV_TEST_INT", 7) == 7
+    assert "Ignoring non-positive" in capsys.readouterr().err

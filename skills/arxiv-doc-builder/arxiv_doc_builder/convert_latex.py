@@ -8,6 +8,7 @@ Uses pandoc for conversion, with post-processing for better formatting.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -77,21 +78,30 @@ def find_main_tex(source_dir: Path) -> Optional[Path]:
 
 def _int_env(name: str, default: int) -> int:
     """Read an int env override, falling back to ``default`` when the var is
-    unset or non-numeric. Parsing here (rather than inline at the constant)
-    keeps a malformed override — e.g. ``ARXIV_PANDOC_TIMEOUT=3m`` — from raising
-    at import time and crashing every command in the tool before it even starts.
+    unset, non-numeric, or non-positive. Parsing here (rather than inline at the
+    constant) keeps a malformed override — e.g. ``ARXIV_PANDOC_TIMEOUT=3m`` —
+    from raising at import time and crashing every command before it starts.
     """
     raw = os.environ.get(name)
     if raw is None:
         return default
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError:
         print(
             f"Ignoring non-integer {name}={raw!r}; using {default}.",
             file=sys.stderr,
         )
         return default
+    # Both bounds must be positive: a zero/negative timeout or RSS cap would trip
+    # immediately and kill every conversion, so reject those like a parse error.
+    if value <= 0:
+        print(
+            f"Ignoring non-positive {name}={raw!r}; using {default}.",
+            file=sys.stderr,
+        )
+        return default
+    return value
 
 
 # A clean LaTeX->Markdown conversion finishes in seconds even for a 100-page,
@@ -130,11 +140,16 @@ def _process_rss_mb(pid: int) -> Optional[int]:
     Shells out to `ps -o rss=` (KB) rather than taking a psutil dependency;
     works on the macOS/Linux targets. RSS (not virtual size) is what causes
     swap thrash, and reading it externally sidesteps the GHC RTS reserving a
-    huge virtual address space that defeats RLIMIT_AS-style caps.
+    huge virtual address space that defeats RLIMIT_AS-style caps. `ps` is
+    resolved to an absolute path so a `.`-in-PATH setup can't run a planted
+    binary from the (untrusted) source tree this tool runs subprocesses in.
     """
+    ps_bin = shutil.which("ps")
+    if ps_bin is None:
+        return None
     try:
         out = subprocess.run(
-            ["ps", "-o", "rss=", "-p", str(pid)],
+            [ps_bin, "-o", "rss=", "-p", str(pid)],
             capture_output=True, text=True, timeout=5,
         )
     except (subprocess.SubprocessError, OSError):
@@ -157,6 +172,14 @@ def convert_with_pandoc(
     """
     print(f"Converting {tex_file.name} to Markdown with pandoc...")
 
+    # Resolve pandoc to an absolute path. cwd below is the extracted (untrusted)
+    # source tree, so a bare "pandoc" with `.` in PATH could exec a planted
+    # binary; an absolute path skips PATH lookup in the child entirely.
+    pandoc_bin = shutil.which("pandoc")
+    if pandoc_bin is None:
+        print("Error: pandoc not found on PATH.", file=sys.stderr)
+        return False
+
     # Use absolute paths
     tex_file_abs = tex_file.resolve()
     output_md_abs = output_md.resolve()
@@ -169,7 +192,7 @@ def convert_with_pandoc(
     with tempfile.TemporaryFile() as errf:
         proc = subprocess.Popen(
             [
-                "pandoc",
+                pandoc_bin,
                 str(tex_file_abs),
                 "-f", "latex",
                 "-t", "markdown",
