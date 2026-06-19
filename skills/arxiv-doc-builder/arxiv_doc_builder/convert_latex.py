@@ -145,7 +145,9 @@ def _process_rss_mb(pid: int) -> Optional[int]:
     binary from the (untrusted) source tree this tool runs subprocesses in.
     """
     ps_bin = shutil.which("ps")
-    if ps_bin is None:
+    # shutil.which can return a relative path when PATH holds a relative entry;
+    # that would re-resolve against the untrusted cwd, so require an absolute one.
+    if ps_bin is None or not os.path.isabs(ps_bin):
         return None
     try:
         out = subprocess.run(
@@ -176,8 +178,10 @@ def convert_with_pandoc(
     # source tree, so a bare "pandoc" with `.` in PATH could exec a planted
     # binary; an absolute path skips PATH lookup in the child entirely.
     pandoc_bin = shutil.which("pandoc")
-    if pandoc_bin is None:
-        print("Error: pandoc not found on PATH.", file=sys.stderr)
+    # Require an absolute path: shutil.which can yield a relative one from a
+    # relative PATH entry, which would re-resolve against the untrusted cwd.
+    if pandoc_bin is None or not os.path.isabs(pandoc_bin):
+        print("Error: pandoc not found on PATH as an absolute path.", file=sys.stderr)
         return False
 
     # Use absolute paths

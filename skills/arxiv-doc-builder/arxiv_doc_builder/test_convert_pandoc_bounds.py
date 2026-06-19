@@ -127,9 +127,9 @@ def test_rss_watchdog_kills_and_returns_false(monkeypatch: pytest.MonkeyPatch) -
 
 def test_returns_false_when_pandoc_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     # Fail closed (not hang, not crash) when pandoc cannot be resolved on PATH.
-    monkeypatch.setattr(convert_latex.shutil, "which", lambda name: None)
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: None)
 
-    def _no_popen(*a: object, **k: object) -> NoReturn:
+    def _no_popen(*_a: object, **_k: object) -> NoReturn:
         raise AssertionError("Popen must not run when pandoc is unresolved")
 
     monkeypatch.setattr(convert_latex.subprocess, "Popen", _no_popen)
@@ -137,8 +137,30 @@ def test_returns_false_when_pandoc_missing(monkeypatch: pytest.MonkeyPatch) -> N
     assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is False
 
 
+def test_returns_false_when_pandoc_path_relative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A relative which() result (relative PATH entry) must be rejected, since it
+    # would re-resolve against the untrusted cwd.
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: "pandoc")
+
+    def _no_popen(*_a: object, **_k: object) -> NoReturn:
+        raise AssertionError("Popen must not run for a relative pandoc path")
+
+    monkeypatch.setattr(convert_latex.subprocess, "Popen", _no_popen)
+
+    assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is False
+
+
 def test_process_rss_mb_none_when_ps_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(convert_latex.shutil, "which", lambda name: None)
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: None)
+    assert _process_rss_mb(1234) is None
+
+
+def test_process_rss_mb_none_when_ps_path_relative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: "ps")
     assert _process_rss_mb(1234) is None
 
 
