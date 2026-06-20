@@ -15,10 +15,12 @@ from pathlib import Path
 # *inside* arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_doc_builder._version import read_version
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from _version import read_version
 
 
 def run_script(script_name: str, args: list, use_uv: bool = False) -> int:
@@ -42,6 +44,16 @@ def run_script(script_name: str, args: list, use_uv: bool = False) -> int:
 def main():
     parser = argparse.ArgumentParser(
         description="Convert arXiv paper to Markdown documentation"
+    )
+    # action="version" prints and exits before any other parsing, so
+    # `convert-paper --version` works without a positional arxiv_id.
+    # read_version() runs at parser-build time, but it is a cheap metadata
+    # / TOML read.
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {read_version()}",
     )
     parser.add_argument("arxiv_id", help="arXiv ID (e.g., 2409.03108)")
     parser.add_argument(
