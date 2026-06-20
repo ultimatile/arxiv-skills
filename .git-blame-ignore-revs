@@ -1,0 +1,5 @@
+# Revisions git blame should skip (bulk mechanical reformats, no logic).
+# Enable locally:  git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply ruff format and lint autofixes
+28557b677f5ede35a4f6db4b75299669edc2f94b
