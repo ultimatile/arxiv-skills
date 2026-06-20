@@ -65,8 +65,7 @@ def _check_sequence(arxiv_id: str, seq: str) -> None:
     """Reject all-zero sequence numbers. arXiv sequences start at 1."""
     if int(seq) < 1:
         raise ValueError(
-            f"arXiv ID {arxiv_id!r}: sequence numbers start at 1, "
-            f"got {seq!r}."
+            f"arXiv ID {arxiv_id!r}: sequence numbers start at 1, got {seq!r}."
         )
 
 

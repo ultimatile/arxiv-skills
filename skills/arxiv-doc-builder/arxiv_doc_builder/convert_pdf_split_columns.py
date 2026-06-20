@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 from pdf2image import convert_from_path
 from pypdf import PdfReader
-from PIL import Image
 
 
 def split_image_columns(image, num_columns=2):
@@ -32,7 +31,9 @@ def split_image_columns(image, num_columns=2):
     return columns
 
 
-def convert_pdf_split_columns(pdf_path: Path, output_dir: Path, dpi: int = 300, num_columns: int = 2):
+def convert_pdf_split_columns(
+    pdf_path: Path, output_dir: Path, dpi: int = 300, num_columns: int = 2
+):
     """Convert PDF to images with column splitting."""
 
     print(f"Converting PDF with column splitting: {pdf_path}")
@@ -72,7 +73,7 @@ def convert_pdf_split_columns(pdf_path: Path, output_dir: Path, dpi: int = 300, 
 
     print()
     print("=" * 60)
-    print(f"✓ Conversion complete!")
+    print("✓ Conversion complete!")
     print(f"Total images: {len(image_paths)}")
     print(f"  - Full pages: {len(images)}")
     print(f"  - Column images: {len(images) * num_columns}")
@@ -86,27 +87,21 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert PDF to images with column splitting for better detail"
     )
+    parser.add_argument("pdf_path", type=Path, help="Path to PDF file")
     parser.add_argument(
-        "pdf_path",
-        type=Path,
-        help="Path to PDF file"
-    )
-    parser.add_argument(
-        "-o", "--output-dir",
-        type=Path,
-        help="Output directory for images"
+        "-o", "--output-dir", type=Path, help="Output directory for images"
     )
     parser.add_argument(
         "--dpi",
         type=int,
         default=300,
-        help="Image resolution in DPI (default: 300, higher = better detail)"
+        help="Image resolution in DPI (default: 300, higher = better detail)",
     )
     parser.add_argument(
         "--columns",
         type=int,
         default=2,
-        help="Number of columns to split each page into (default: 2)"
+        help="Number of columns to split each page into (default: 2)",
     )
 
     args = parser.parse_args()

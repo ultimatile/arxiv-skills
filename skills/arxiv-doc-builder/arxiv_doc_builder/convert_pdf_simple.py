@@ -20,21 +20,17 @@ from pdf_converter_lib import convert_pdf_to_markdown
 def main():
     parser = argparse.ArgumentParser(
         description="Convert PDF to Markdown (all pages, single-column)",
-        epilog="Example: %(prog)s paper.pdf -o output.md"
+        epilog="Example: %(prog)s paper.pdf -o output.md",
     )
+    parser.add_argument("pdf_path", type=Path, help="Path to PDF file")
     parser.add_argument(
-        "pdf_path",
+        "-o",
+        "--output",
         type=Path,
-        help="Path to PDF file"
+        help="Output Markdown file path (default: same name as PDF with .md extension)",
     )
     parser.add_argument(
-        "-o", "--output",
-        type=Path,
-        help="Output Markdown file path (default: same name as PDF with .md extension)"
-    )
-    parser.add_argument(
-        "--arxiv-id",
-        help="arXiv ID for authoritative frontmatter metadata (optional)"
+        "--arxiv-id", help="arXiv ID for authoritative frontmatter metadata (optional)"
     )
 
     args = parser.parse_args()
@@ -43,7 +39,7 @@ def main():
         print(f"Error: PDF file not found: {args.pdf_path}")
         sys.exit(1)
 
-    output_path = args.output or args.pdf_path.with_suffix('.md')
+    output_path = args.output or args.pdf_path.with_suffix(".md")
 
     # Convert all pages as single-column
     convert_pdf_to_markdown(

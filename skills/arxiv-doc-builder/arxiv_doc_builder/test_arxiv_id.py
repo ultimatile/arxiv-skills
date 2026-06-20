@@ -21,11 +21,11 @@ from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
         "2506.01376",
         "2506.01376v1",
         "2506.01376v12",
-        "1501.00001",          # first month of 5-digit era
+        "1501.00001",  # first month of 5-digit era
         "2202.11737",
         # 2007-04 through 2014-12 4-digit IDs
-        "0704.0001",           # first month of new-style scheme
-        "1412.7890",           # last 4-digit month
+        "0704.0001",  # first month of new-style scheme
+        "1412.7890",  # last 4-digit month
         "1412.0789v3",
         # Legacy archive/YYMMNNN IDs — short-uppercase subclass form
         "hep-th/9901001",
@@ -57,7 +57,7 @@ def test_canonical_ids_accepted(arxiv_id):
         # Post-2015 paper with 4 digits: would silently remap to a zero-padded
         # neighbour. The exact case that motivated the validator.
         "2202.1173",
-        "1501.0001",           # boundary month
+        "1501.0001",  # boundary month
         "2506.1376",
         "2506.1376v2",
         # Pre-2015 paper with 5 digits: no such paper exists in that window.
@@ -67,13 +67,13 @@ def test_canonical_ids_accepted(arxiv_id):
         "0701.0001",
         "0703.0001",
         # Invalid month.
-        "2013.0001",           # month 13
-        "2500.00001",          # month 00
+        "2013.0001",  # month 13
+        "2500.00001",  # month 00
         # Structurally malformed.
         "2506",
         "2506.",
-        "2506.123",            # 3 digits: neither canonical width
-        "2506.1234567",        # too many digits
+        "2506.123",  # 3 digits: neither canonical width
+        "2506.1234567",  # too many digits
         "abcd.12345",
         "",
         # Semantically impossible: sequences start at 1, not 0.
@@ -108,8 +108,8 @@ def test_noncanonical_ids_rejected(arxiv_id):
 @pytest.mark.parametrize(
     "arxiv_id, expected",
     [
-        ("2506.01376", "2506.01376"),              # new-style: no change
-        ("hep-th/9901001", "hep-th_9901001"),      # legacy: slash → underscore
+        ("2506.01376", "2506.01376"),  # new-style: no change
+        ("hep-th/9901001", "hep-th_9901001"),  # legacy: slash → underscore
         ("math.AG/0703001v2", "math.AG_0703001v2"),
     ],
 )

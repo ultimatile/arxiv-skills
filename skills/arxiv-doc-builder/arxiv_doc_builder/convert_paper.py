@@ -60,13 +60,13 @@ def main():
         "--output-dir",
         type=Path,
         default=Path("."),
-        help="Output directory (default: current directory)"
+        help="Output directory (default: current directory)",
     )
     parser.add_argument(
         "--tex-file",
         type=Path,
         help="Specify the main .tex file directly "
-             "(required when multiple \\documentclass files are present)"
+        "(required when multiple \\documentclass files are present)",
     )
 
     args = parser.parse_args()
@@ -85,7 +85,7 @@ def main():
     source_dir = paper_dir / "source"
 
     print("=" * 60)
-    print(f"arXiv Paper to Markdown Converter")
+    print("arXiv Paper to Markdown Converter")
     print(f"Paper ID: {args.arxiv_id}")
     print("=" * 60)
     print()
@@ -94,8 +94,7 @@ def main():
     print("Step 1: Fetching paper materials...")
     print("-" * 60)
     rc = run_script(
-        "fetch_paper.py",
-        [args.arxiv_id, "--output-dir", str(args.output_dir)]
+        "fetch_paper.py", [args.arxiv_id, "--output-dir", str(args.output_dir)]
     )
     if rc != 0:
         print("\n✗ Fetching failed")
@@ -113,7 +112,9 @@ def main():
     has_top_level_tex = source_dir.exists() and list(source_dir.glob("*.tex"))
     if args.tex_file or has_top_level_tex:
         if args.tex_file:
-            print(f"Using explicit --tex-file {args.tex_file}, running LaTeX conversion...")
+            print(
+                f"Using explicit --tex-file {args.tex_file}, running LaTeX conversion..."
+            )
         else:
             print("LaTeX source detected, using LaTeX conversion...")
         latex_args = [

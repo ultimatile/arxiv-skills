@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 from pdf2image import convert_from_path
 from pypdf import PdfReader
-from PIL import Image
 
 
 def extract_metadata(pdf_path):
@@ -23,9 +22,9 @@ def extract_metadata(pdf_path):
     meta = reader.metadata
 
     return {
-        'title': meta.title if meta and meta.title else pdf_path.stem,
-        'author': meta.author if meta and meta.author else 'Unknown',
-        'total_pages': len(reader.pages)
+        "title": meta.title if meta and meta.title else pdf_path.stem,
+        "author": meta.author if meta and meta.author else "Unknown",
+        "total_pages": len(reader.pages),
     }
 
 
@@ -44,7 +43,13 @@ def split_image_columns(image, num_columns=2):
     return columns
 
 
-def convert_pdf_to_images(pdf_path: Path, output_dir: Path, dpi: int = 300, split_columns: bool = True, num_columns: int = 2):
+def convert_pdf_to_images(
+    pdf_path: Path,
+    output_dir: Path,
+    dpi: int = 300,
+    split_columns: bool = True,
+    num_columns: int = 2,
+):
     """Convert PDF to images."""
 
     print(f"Converting PDF to images: {pdf_path}")
@@ -89,7 +94,7 @@ def convert_pdf_to_images(pdf_path: Path, output_dir: Path, dpi: int = 300, spli
     print()
     print()
     print("=" * 60)
-    print(f"✓ Conversion complete!")
+    print("✓ Conversion complete!")
     print(f"Total images: {len(image_paths)}")
     if split_columns:
         print(f"  - Full pages: {len(images)}")
@@ -103,7 +108,9 @@ def convert_pdf_to_images(pdf_path: Path, output_dir: Path, dpi: int = 300, spli
     print("3. Combine into a Markdown document")
     print()
     if split_columns:
-        print("Tip: Process columns separately for better detail on small text/formulas")
+        print(
+            "Tip: Process columns separately for better detail on small text/formulas"
+        )
         print()
 
     return image_paths, metadata
@@ -113,32 +120,23 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert PDF to images for Claude vision-based processing"
     )
+    parser.add_argument("pdf_path", type=Path, help="Path to PDF file")
     parser.add_argument(
-        "pdf_path",
+        "-o",
+        "--output-dir",
         type=Path,
-        help="Path to PDF file"
+        help="Output directory for images (default: papers/PDFNAME/images)",
     )
     parser.add_argument(
-        "-o", "--output-dir",
-        type=Path,
-        help="Output directory for images (default: papers/PDFNAME/images)"
-    )
-    parser.add_argument(
-        "--dpi",
-        type=int,
-        default=300,
-        help="Image resolution in DPI (default: 300)"
+        "--dpi", type=int, default=300, help="Image resolution in DPI (default: 300)"
     )
     parser.add_argument(
         "--no-split",
         action="store_true",
-        help="Disable column splitting (default: split into 2 columns)"
+        help="Disable column splitting (default: split into 2 columns)",
     )
     parser.add_argument(
-        "--columns",
-        type=int,
-        default=2,
-        help="Number of columns to split (default: 2)"
+        "--columns", type=int, default=2, help="Number of columns to split (default: 2)"
     )
 
     args = parser.parse_args()
@@ -159,7 +157,7 @@ def main():
         output_dir,
         args.dpi,
         split_columns=not args.no_split,
-        num_columns=args.columns
+        num_columns=args.columns,
     )
 
 

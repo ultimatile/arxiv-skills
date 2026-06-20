@@ -21,17 +21,14 @@ import pdfplumber
 def main():
     parser = argparse.ArgumentParser(
         description="Convert PDF to Markdown (all pages, double-column)",
-        epilog="Example: %(prog)s paper.pdf -o output.md"
+        epilog="Example: %(prog)s paper.pdf -o output.md",
     )
+    parser.add_argument("pdf_path", type=Path, help="Path to PDF file")
     parser.add_argument(
-        "pdf_path",
+        "-o",
+        "--output",
         type=Path,
-        help="Path to PDF file"
-    )
-    parser.add_argument(
-        "-o", "--output",
-        type=Path,
-        help="Output Markdown file path (default: same name as PDF with .md extension)"
+        help="Output Markdown file path (default: same name as PDF with .md extension)",
     )
 
     args = parser.parse_args()
@@ -40,7 +37,7 @@ def main():
         print(f"Error: PDF file not found: {args.pdf_path}")
         sys.exit(1)
 
-    output_path = args.output or args.pdf_path.with_suffix('.md')
+    output_path = args.output or args.pdf_path.with_suffix(".md")
 
     # Get all page numbers
     with pdfplumber.open(args.pdf_path) as pdf:
@@ -52,7 +49,7 @@ def main():
         pdf_path=args.pdf_path,
         output_path=output_path,
         pages_to_extract=None,  # All pages
-        double_column_pages=all_pages  # All as double-column
+        double_column_pages=all_pages,  # All as double-column
     )
 
 

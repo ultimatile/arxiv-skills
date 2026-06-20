@@ -52,6 +52,9 @@ class _FakeProc:
     def wait(self, timeout: float | None = None) -> int:
         if self._finishes:
             return self.returncode
+        # The bounded-wait path is only ever driven with a real float timeout;
+        # narrow it so TimeoutExpired (which requires a float) typechecks.
+        assert timeout is not None
         raise subprocess.TimeoutExpired(cmd="pandoc", timeout=timeout)
 
     def kill(self) -> None:
@@ -60,9 +63,7 @@ class _FakeProc:
 
 
 def _patch_popen(monkeypatch: pytest.MonkeyPatch, proc: _FakeProc) -> None:
-    monkeypatch.setattr(
-        convert_latex.subprocess, "Popen", lambda *a, **k: proc
-    )
+    monkeypatch.setattr(convert_latex.subprocess, "Popen", lambda *a, **k: proc)
 
 
 # ---- _process_rss_mb ----
@@ -102,9 +103,7 @@ def test_timeout_kills_and_returns_false(monkeypatch: pytest.MonkeyPatch) -> Non
     # RSS stays low so only the timeout can trip.
     monkeypatch.setattr(convert_latex, "_process_rss_mb", lambda pid: 1)
 
-    ok = convert_with_pandoc(
-        Path("x.tex"), Path("out.md"), timeout=5, rss_cap_mb=8192
-    )
+    ok = convert_with_pandoc(Path("x.tex"), Path("out.md"), timeout=5, rss_cap_mb=8192)
 
     assert ok is False
     assert proc.killed
@@ -186,7 +185,9 @@ def test_success_returns_true_without_kill(monkeypatch: pytest.MonkeyPatch) -> N
     assert not proc.killed
 
 
-def test_nonzero_exit_returns_false_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nonzero_exit_returns_false_without_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     proc = _FakeProc(finishes=True, returncode=1)
     _patch_popen(monkeypatch, proc)
     monkeypatch.setattr(convert_latex.time, "monotonic", lambda: 0.0)

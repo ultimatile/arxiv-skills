@@ -63,8 +63,8 @@ def find_main_tex(source_dir: Path) -> Optional[Path]:
     # Collect all .tex files with \documentclass
     doc_files = []
     for tex_file in sorted(source_dir.glob("*.tex")):
-        content = tex_file.read_text(encoding='utf-8', errors='ignore')
-        if '\\documentclass' in content:
+        content = tex_file.read_text(encoding="utf-8", errors="ignore")
+        if "\\documentclass" in content:
             doc_files.append(tex_file)
 
     if len(doc_files) == 1:
@@ -152,7 +152,9 @@ def _process_rss_mb(pid: int) -> Optional[int]:
     try:
         out = subprocess.run(
             [ps_bin, "-o", "rss=", "-p", str(pid)],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
     except (subprocess.SubprocessError, OSError):
         return None
@@ -198,11 +200,14 @@ def convert_with_pandoc(
             [
                 pandoc_bin,
                 str(tex_file_abs),
-                "-f", "latex",
-                "-t", "markdown",
+                "-f",
+                "latex",
+                "-t",
+                "markdown",
                 "--wrap=none",
                 "--mathjax",
-                "-o", str(output_md_abs),
+                "-o",
+                str(output_md_abs),
             ],
             stdout=subprocess.DEVNULL,
             stderr=errf,
@@ -274,15 +279,15 @@ def extract_title_from_latex(tex_file: Path) -> Optional[str]:
     candidates = [tex_file]
     candidates += sorted(p for p in tex_file.parent.glob("*.tex") if p != tex_file)
     for candidate in candidates:
-        content = candidate.read_text(encoding='utf-8', errors='ignore')
+        content = candidate.read_text(encoding="utf-8", errors="ignore")
         # Match \title{...} handling nested braces
-        match = re.search(r'\\title\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}', content)
+        match = re.search(r"\\title\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", content)
         if match:
             title = match.group(1)
             # Clean up LaTeX commands
-            title = re.sub(r'\\[a-zA-Z]+\s*', '', title)  # Remove commands
-            title = re.sub(r'[{}]', '', title)  # Remove braces
-            title = re.sub(r'\s+', ' ', title).strip()  # Normalize whitespace
+            title = re.sub(r"\\[a-zA-Z]+\s*", "", title)  # Remove commands
+            title = re.sub(r"[{}]", "", title)  # Remove braces
+            title = re.sub(r"\s+", " ", title).strip()  # Normalize whitespace
             return title or None
     return None
 
@@ -291,7 +296,7 @@ def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
     """Post-process Markdown for better formatting."""
     from datetime import datetime, timezone
 
-    content = md_file.read_text(encoding='utf-8')
+    content = md_file.read_text(encoding="utf-8")
 
     # A single arXiv fetch supplies the whole provenance frontmatter; the LaTeX
     # \title of the converted file is only a fallback for the title, and only
@@ -312,17 +317,17 @@ def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
 
     # Fix figure paths (convert to relative paths)
     content = re.sub(
-        r'!\[([^\]]*)\]\(([^)]+)\)',
-        lambda m: f'![{m.group(1)}](figures/{Path(m.group(2)).name})',
-        content
+        r"!\[([^\]]*)\]\(([^)]+)\)",
+        lambda m: f"![{m.group(1)}](figures/{Path(m.group(2)).name})",
+        content,
     )
 
     # Clean up excessive blank lines
-    content = re.sub(r'\n{3,}', '\n\n', content)
+    content = re.sub(r"\n{3,}", "\n\n", content)
 
     # Write back
     final_content = header + content
-    md_file.write_text(final_content, encoding='utf-8')
+    md_file.write_text(final_content, encoding="utf-8")
 
     print("✓ Post-processed Markdown")
 
@@ -342,7 +347,7 @@ def copy_figures(source_dir: Path, output_dir: Path):
     figures_dir.mkdir(exist_ok=True)
 
     # Common image extensions
-    image_exts = ['.png', '.jpg', '.jpeg', '.pdf', '.eps']
+    image_exts = [".png", ".jpg", ".jpeg", ".pdf", ".eps"]
 
     copied = 0
     for ext in image_exts:
@@ -361,17 +366,17 @@ def main():
     parser.add_argument(
         "--source-dir",
         type=Path,
-        help="LaTeX source directory (default: papers/ARXIV_ID/source)"
+        help="LaTeX source directory (default: papers/ARXIV_ID/source)",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output Markdown file (default: papers/ARXIV_ID/ARXIV_ID.md)"
+        help="Output Markdown file (default: papers/ARXIV_ID/ARXIV_ID.md)",
     )
     parser.add_argument(
         "--tex-file",
         type=Path,
-        help="Specify the main .tex file directly (overrides auto-detection)"
+        help="Specify the main .tex file directly (overrides auto-detection)",
     )
 
     args = parser.parse_args()

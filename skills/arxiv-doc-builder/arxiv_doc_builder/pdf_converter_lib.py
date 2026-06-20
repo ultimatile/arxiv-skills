@@ -41,10 +41,10 @@ def parse_page_ranges(range_str: Optional[str]) -> Set[int]:
         return set()
 
     pages = set()
-    for part in range_str.split(','):
+    for part in range_str.split(","):
         part = part.strip()
-        if '-' in part:
-            start, end = part.split('-')
+        if "-" in part:
+            start, end = part.split("-")
             pages.update(range(int(start), int(end) + 1))
         else:
             pages.add(int(part))
@@ -58,12 +58,12 @@ def clean_text(text: str) -> str:
         return ""
 
     # Replace multiple spaces with single space
-    text = ' '.join(text.split())
+    text = " ".join(text.split())
 
     # Fix common PDF extraction issues
-    text = text.replace('ﬁ', 'fi')
-    text = text.replace('ﬂ', 'fl')
-    text = text.replace('ﬀ', 'ff')
+    text = text.replace("ﬁ", "fi")
+    text = text.replace("ﬂ", "fl")
+    text = text.replace("ﬀ", "ff")
 
     return text
 
@@ -80,10 +80,10 @@ def extract_metadata(pdf_path: Path) -> dict:
     meta = reader.metadata
 
     return {
-        'title': meta.title if meta and meta.title else None,
-        'author': meta.author if meta and meta.author else None,
-        'subject': meta.subject if meta and meta.subject else '',
-        'creator': meta.creator if meta and meta.creator else '',
+        "title": meta.title if meta and meta.title else None,
+        "author": meta.author if meta and meta.author else None,
+        "subject": meta.subject if meta and meta.subject else "",
+        "creator": meta.creator if meta and meta.creator else "",
     }
 
 
@@ -94,9 +94,9 @@ def is_likely_header(text: str) -> bool:
 
     # Common header patterns
     header_indicators = [
-        'PHYSICAL REVIEW',
-        'VOLUME',
-        'NUMBER',
+        "PHYSICAL REVIEW",
+        "VOLUME",
+        "NUMBER",
     ]
 
     return any(indicator in text.upper() for indicator in header_indicators)
@@ -113,9 +113,9 @@ def is_likely_footer(text: str) -> bool:
 
     # Copyright or journal info
     footer_indicators = [
-        'The American Physical Society',
-        '©',
-        'Copyright',
+        "The American Physical Society",
+        "©",
+        "Copyright",
     ]
 
     return any(indicator in text for indicator in footer_indicators)
@@ -128,7 +128,7 @@ def extract_column_text(page_or_crop, page_num: int, column_label: str = "") -> 
     if not text:
         return ""
 
-    lines = text.split('\n')
+    lines = text.split("\n")
     cleaned_lines = []
 
     for i, line in enumerate(lines):
@@ -145,7 +145,7 @@ def extract_column_text(page_or_crop, page_num: int, column_label: str = "") -> 
             cleaned_lines.append(cleaned)
 
     # Join lines with proper spacing
-    content = '\n\n'.join(cleaned_lines)
+    content = "\n\n".join(cleaned_lines)
 
     return content
 
@@ -188,7 +188,7 @@ def extract_page_content(page, page_num: int, is_double_column: bool = False) ->
         if not text:
             return f"\n<!-- Page {page_num}: No text extracted -->\n"
 
-        lines = text.split('\n')
+        lines = text.split("\n")
         cleaned_lines = []
 
         for i, line in enumerate(lines):
@@ -205,25 +205,33 @@ def extract_page_content(page, page_num: int, is_double_column: bool = False) ->
                 cleaned_lines.append(cleaned)
 
         # Join lines with proper spacing
-        content = '\n\n'.join(cleaned_lines)
+        content = "\n\n".join(cleaned_lines)
 
         # Extract tables if any
         tables = page.extract_tables()
         if tables:
             table_content = "\n\n"
             for j, table in enumerate(tables):
-                table_content += f"**Table {j+1}:**\n\n"
+                table_content += f"**Table {j + 1}:**\n\n"
 
                 # Convert to markdown table
                 if table and len(table) > 0:
                     # Header
                     header = table[0]
-                    table_content += "| " + " | ".join(str(cell) if cell else "" for cell in header) + " |\n"
+                    table_content += (
+                        "| "
+                        + " | ".join(str(cell) if cell else "" for cell in header)
+                        + " |\n"
+                    )
                     table_content += "|" + "|".join(["---"] * len(header)) + "|\n"
 
                     # Rows
                     for row in table[1:]:
-                        table_content += "| " + " | ".join(str(cell) if cell else "" for cell in row) + " |\n"
+                        table_content += (
+                            "| "
+                            + " | ".join(str(cell) if cell else "" for cell in row)
+                            + " |\n"
+                        )
 
                     table_content += "\n"
 
@@ -311,7 +319,9 @@ def convert_pdf_to_markdown(
             print(f"Processing page {i}/{total_pages}{column_info}...")
 
             try:
-                page_content = extract_page_content(page, i, is_double_column=is_double_column)
+                page_content = extract_page_content(
+                    page, i, is_double_column=is_double_column
+                )
 
                 # Add page marker and content
                 markdown_parts.append(f"\n\n<!-- Page {i}{column_info} -->\n\n")
@@ -326,7 +336,7 @@ def convert_pdf_to_markdown(
         print()
 
         # Combine all content
-        full_markdown = ''.join(markdown_parts)
+        full_markdown = "".join(markdown_parts)
 
         # Add notes section
         notes = """
@@ -346,7 +356,7 @@ def convert_pdf_to_markdown(
 
         # Save to file
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(full_markdown, encoding='utf-8')
+        output_path.write_text(full_markdown, encoding="utf-8")
 
         print("=" * 60)
         print("✓ Conversion complete!")

@@ -59,7 +59,10 @@ def _parse(frontmatter: str):
 
 def test_all_keys_present_in_full_metadata():
     fm = build_frontmatter(
-        _FULL, arxiv_id="2606.09995", source_type="latex", conversion_date="2026-06-11T10:00:00"
+        _FULL,
+        arxiv_id="2606.09995",
+        source_type="latex",
+        conversion_date="2026-06-11T10:00:00",
     )
     for key in FRONTMATTER_KEYS:
         assert f"{key}:" in fm, f"missing key {key!r} in frontmatter"
@@ -83,7 +86,11 @@ def test_absent_doi_journal_render_as_bare_null_keys():
 def test_absent_arxiv_id_renders_as_null():
     # Manual PDF scripts invoke the converter without an id.
     fm = build_frontmatter(
-        None, arxiv_id=None, source_type="pdf", conversion_date="d", fallback_title="From PDF"
+        None,
+        arxiv_id=None,
+        source_type="pdf",
+        conversion_date="d",
+        fallback_title="From PDF",
     )
     assert "\narxiv_id:\n" in fm
     assert "From PDF" in fm
@@ -94,7 +101,10 @@ def test_absent_arxiv_id_renders_as_null():
 
 def test_full_metadata_round_trips():
     fm = build_frontmatter(
-        _FULL, arxiv_id="2606.09995", source_type="latex", conversion_date="2026-06-11T10:00:00"
+        _FULL,
+        arxiv_id="2606.09995",
+        source_type="latex",
+        conversion_date="2026-06-11T10:00:00",
     )
     parsed = _parse(fm)
 
@@ -118,7 +128,9 @@ def test_full_metadata_round_trips():
 def test_absent_fields_parse_to_none():
     meta = ArxivMetadata(title="T", doi=None, journal=None, abstract=None)
     parsed = _parse(
-        build_frontmatter(meta, arxiv_id="2606.09995", source_type="latex", conversion_date="d")
+        build_frontmatter(
+            meta, arxiv_id="2606.09995", source_type="latex", conversion_date="d"
+        )
     )
     assert "doi" in parsed and parsed["doi"] is None
     assert "journal" in parsed and parsed["journal"] is None
@@ -206,7 +218,10 @@ def test_parse_version_canonical_full_tail():
 def test_parse_version_legacy_full_tail():
     # Legacy ids keep their slash and the version suffix; the sidecar stores
     # exactly this form, so the parser must not strip either.
-    assert parse_version_from_id("http://arxiv.org/abs/hep-th/9901001v3") == "hep-th/9901001v3"
+    assert (
+        parse_version_from_id("http://arxiv.org/abs/hep-th/9901001v3")
+        == "hep-th/9901001v3"
+    )
 
 
 def test_parse_version_empty_and_none():

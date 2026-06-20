@@ -103,14 +103,19 @@ def test_extract_title_uses_selected_tex_not_arbitrary_sibling(tmp_path):
     )
 
     assert extract_title_from_latex(tmp_path / "main.tex") == "Correct Main Title"
-    assert extract_title_from_latex(tmp_path / "supplement.tex") == "Wrong Supplement Title"
+    assert (
+        extract_title_from_latex(tmp_path / "supplement.tex")
+        == "Wrong Supplement Title"
+    )
 
 
 def test_extract_title_falls_back_to_sibling_when_selected_has_none(tmp_path):
     # The \title may sit in an included preamble; fall back to siblings rather
     # than reporting no title.
     (tmp_path / "main.tex").write_text(r"\documentclass{article}", encoding="utf-8")
-    (tmp_path / "preamble.tex").write_text(r"\title{Title In Preamble}", encoding="utf-8")
+    (tmp_path / "preamble.tex").write_text(
+        r"\title{Title In Preamble}", encoding="utf-8"
+    )
 
     assert extract_title_from_latex(tmp_path / "main.tex") == "Title In Preamble"
 

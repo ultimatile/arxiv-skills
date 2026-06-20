@@ -88,8 +88,7 @@ def _detect_file_type(path: Path) -> str:
     Returns one of: "tar", "gzip_single", "latex", "unknown"
     """
     result = subprocess.run(
-        ["file", "--brief", str(path)],
-        capture_output=True, text=True
+        ["file", "--brief", str(path)], capture_output=True, text=True
     )
     desc = result.stdout.strip().lower()
 
@@ -100,7 +99,9 @@ def _detect_file_type(path: Path) -> str:
         # Decompress and check the inner content type via pipe
         inner = subprocess.run(
             f'gunzip -c "{path}" | file --brief -',
-            shell=True, capture_output=True, text=True
+            shell=True,
+            capture_output=True,
+            text=True,
         )
         inner_desc = inner.stdout.strip().lower()
         if "tar archive" in inner_desc:
@@ -122,8 +123,7 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
     """
     # Try to recover the original filename from gzip metadata
     result = subprocess.run(
-        ["file", "--brief", str(downloaded)],
-        capture_output=True, text=True
+        ["file", "--brief", str(downloaded)], capture_output=True, text=True
     )
     desc = result.stdout.strip()
 
@@ -137,10 +137,7 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
     source_dir.mkdir(exist_ok=True)
     out_path = source_dir / original_name
 
-    decompress = subprocess.run(
-        ["gunzip", "-c", str(downloaded)],
-        capture_output=True
-    )
+    decompress = subprocess.run(["gunzip", "-c", str(downloaded)], capture_output=True)
     if decompress.returncode != 0:
         print(f"Failed to decompress: {decompress.stderr.decode()}")
         return False
@@ -168,8 +165,11 @@ def _needs_refresh(paper_dir: Path, latest: Optional[str]) -> bool:
 
 
 def fetch_source(
-    arxiv_id: str, output_dir: Path, file_id: str,
-    *, refresh: bool = False,
+    arxiv_id: str,
+    output_dir: Path,
+    file_id: str,
+    *,
+    refresh: bool = False,
 ) -> bool:
     """
     Fetch LaTeX source from arXiv.
@@ -202,8 +202,7 @@ def fetch_source(
     print(f"Fetching source from {source_url}...")
 
     result = subprocess.run(
-        ["curl", "-f", "-L", "-o", str(downloaded), source_url],
-        capture_output=True
+        ["curl", "-f", "-L", "-o", str(downloaded), source_url], capture_output=True
     )
 
     if result.returncode != 0:
@@ -219,8 +218,7 @@ def fetch_source(
     if file_type == "tar":
         source_dir.mkdir(exist_ok=True)
         result = subprocess.run(
-            ["tar", "-xzf", str(downloaded), "-C", str(source_dir)],
-            capture_output=True
+            ["tar", "-xzf", str(downloaded), "-C", str(source_dir)], capture_output=True
         )
         if result.returncode != 0:
             print(f"Failed to extract source: {result.stderr.decode()}")
@@ -253,8 +251,11 @@ def fetch_source(
 
 
 def fetch_pdf(
-    arxiv_id: str, output_dir: Path, file_id: str,
-    *, refresh: bool = False,
+    arxiv_id: str,
+    output_dir: Path,
+    file_id: str,
+    *,
+    refresh: bool = False,
 ) -> bool:
     """
     Fetch PDF from arXiv.
@@ -279,8 +280,7 @@ def fetch_pdf(
 
     pdf_dir.mkdir(exist_ok=True)
     result = subprocess.run(
-        ["curl", "-f", "-L", "-o", str(pdf_file), pdf_url],
-        capture_output=True
+        ["curl", "-f", "-L", "-o", str(pdf_file), pdf_url], capture_output=True
     )
 
     if result.returncode != 0:
@@ -304,7 +304,7 @@ def main():
         "--output-dir",
         type=Path,
         default=Path("papers"),
-        help="Output directory (default: ./papers)"
+        help="Output directory (default: ./papers)",
     )
     args = parser.parse_args()
 
@@ -334,16 +334,24 @@ def main():
     if refresh:
         cached = _read_cached_version(paper_dir)
         if cached is None:
-            print(f"No version metadata found, re-fetching to establish record (latest={latest})")
+            print(
+                f"No version metadata found, re-fetching to establish record (latest={latest})"
+            )
         else:
             print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
     has_source = fetch_source(
-        args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
+        args.arxiv_id,
+        paper_dir,
+        normalized_arxiv_id,
+        refresh=refresh,
     )
     has_pdf = fetch_pdf(
-        args.arxiv_id, paper_dir, normalized_arxiv_id, refresh=refresh,
+        args.arxiv_id,
+        paper_dir,
+        normalized_arxiv_id,
+        refresh=refresh,
     )
 
     # Record version after successful fetch

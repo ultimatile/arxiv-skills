@@ -122,7 +122,7 @@ def parse_version_from_id(id_url: Optional[str]) -> Optional[str]:
         return None
     path = urllib.parse.urlparse(id_url).path
     if path.startswith("/abs/"):
-        return path[len("/abs/"):] or None
+        return path[len("/abs/") :] or None
     return id_url.rsplit("/", 1)[-1] or None
 
 
@@ -151,8 +151,7 @@ def fetch_metadata(arxiv_id: str, *, timeout: int = 10) -> Optional[ArxivMetadat
         authors=[
             name
             for name in (
-                _normalize(n.text)
-                for n in entry.findall("atom:author/atom:name", _NS)
+                _normalize(n.text) for n in entry.findall("atom:author/atom:name", _NS)
             )
             if name
         ],
@@ -163,9 +162,7 @@ def fetch_metadata(arxiv_id: str, *, timeout: int = 10) -> Optional[ArxivMetadat
         primary_category=primary.get("term") if primary is not None else None,
         categories=[
             term
-            for term in (
-                c.get("term") for c in entry.findall("atom:category", _NS)
-            )
+            for term in (c.get("term") for c in entry.findall("atom:category", _NS))
             if term
         ],
         doi=_normalize(_text(entry, "arxiv:doi")),

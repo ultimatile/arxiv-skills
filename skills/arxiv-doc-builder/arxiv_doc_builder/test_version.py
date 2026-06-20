@@ -75,11 +75,13 @@ def test_version_from_pyproject_degrades_to_unknown(monkeypatch, fault):
     if fault == "missing_key":
         monkeypatch.setattr(v.tomllib, "load", lambda f: {})
     elif fault == "decode_error":
+
         def _raise_decode(f):
             raise v.tomllib.TOMLDecodeError("malformed")
 
         monkeypatch.setattr(v.tomllib, "load", _raise_decode)
     else:  # os_error — the pyproject exists path but cannot be opened
+
         def _raise_os(self, *args, **kwargs):
             raise OSError("unreadable")
 
