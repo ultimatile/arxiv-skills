@@ -55,6 +55,9 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
 
 - `--output-dir`: Directory where `{ARXIV_ID}/{ARXIV_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
 - Use absolute paths to control output location precisely.
+- `-V` / `--version`: Print the version and exit. Resolves from installed
+  distribution metadata, falling back to `pyproject.toml` when run straight
+  from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
 
 The orchestrator:
 1. Calls `fetch_paper.py` to download available materials — source if available + PDF (idempotent — cached files are reused)
