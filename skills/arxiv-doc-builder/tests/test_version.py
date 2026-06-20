@@ -12,13 +12,17 @@ from pathlib import Path
 
 import pytest
 
+import arxiv_doc_builder
 from arxiv_doc_builder._version import (
     _DIST_NAME,
     _version_from_pyproject,
     read_version,
 )
 
-_PKG_DIR = Path(__file__).parent
+# Resolve the package dir via the installed package, not this test file —
+# tests live under tests/ while convert_paper.py and pyproject.toml sit at the
+# package and project root respectively.
+_PKG_DIR = Path(arxiv_doc_builder.__file__).parent
 _PYPROJECT = _PKG_DIR.parent / "pyproject.toml"
 
 

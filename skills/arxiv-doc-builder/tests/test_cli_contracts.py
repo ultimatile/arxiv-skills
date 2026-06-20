@@ -22,8 +22,12 @@ from pathlib import Path
 
 import pytest
 
+import arxiv_doc_builder
 
-_SCRIPTS_DIR = Path(__file__).parent
+# Resolve the scripts via the installed package location, not relative to this
+# test file — the tests live under tests/ while the scripts ship under the
+# arxiv_doc_builder package, and this stays correct wherever the package sits.
+_SCRIPTS_DIR = Path(arxiv_doc_builder.__file__).parent
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import arxiv_doc_builder
+
 
 def test_tex_file_forces_latex_path_even_with_no_top_level_tex(tmp_path):
     # Build a source tree that has NO top-level .tex under source/ —
@@ -40,7 +42,7 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(tmp_path):
     pdf_dir.mkdir(parents=True, exist_ok=True)
     (pdf_dir / f"{arxiv_id}.pdf").write_bytes(b"%PDF-stub")
 
-    script = Path(__file__).parent / "convert_paper.py"
+    script = Path(arxiv_doc_builder.__file__).parent / "convert_paper.py"
     result = subprocess.run(
         [
             sys.executable,
