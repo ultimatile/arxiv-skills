@@ -4,6 +4,15 @@ version = "0.3.0"
 requires-python = ">=3.11"
 dependencies = []
 
+# The PDF converter tier is heavy and optional. Declaring it as an extra keeps
+# the core install dependency-free (consumers who only need the LaTeX happy path
+# pay nothing) while `pip install arxiv-doc-builder[pdf]` pulls the stack on
+# demand. The standalone convert_pdf_*.py scripts still carry their own PEP 723
+# inline deps for `uv run --no-project` subprocess execution; this extra is what
+# lets the tier import under pytest and pyright.
+[project.optional-dependencies]
+pdf = ["pdfplumber", "pdf2image", "pypdf", "pillow"]
+
 [project.scripts]
 convert-paper = "arxiv_doc_builder.convert_paper:main"
 
@@ -15,20 +24,19 @@ build-backend = "hatchling.build"
 packages = ["arxiv_doc_builder"]
 
 [dependency-groups]
-dev = ["pytest>=8", "pyyaml>=6", "pyright>=1.1.0", "ruff>=0.15.18"]
+# Pull the pdf extra into the dev env (self-reference) so plain `uv run pytest`
+# and `uv run pyright` resolve the PDF tier without a separate --extra flag.
+dev = ["pytest>=8", "pyyaml>=6", "pyright>=1.1.0", "ruff>=0.15.18", "arxiv-doc-builder[pdf]"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.pyright]
-# Typecheck the importable package surface plus the test suite. The
-# convert_pdf_*.py converters are standalone PEP 723 scripts that uv runs as
-# subprocesses with their own inline dependencies (pdfplumber / pdf2image /
-# pypdf / pillow), and pdf_converter_lib.py is their shared helper relying on
-# that script-time env — none are imported by the package, so they are excluded
-# rather than reported as unresolved third-party imports.
+# Typecheck the whole package surface plus the test suite. The PDF converter
+# tier (the convert_pdf_*.py scripts plus the shared pdf_converter_lib.py /
+# pdf_image_lib.py) is now importable: the heavy third-party imports it depends
+# on — pdfplumber / pdf2image / pypdf / pillow — resolve via the `pdf` extra that
+# the dev group pulls in, so pyright no longer reports them as unresolved. The
+# two refactored shims import only their sibling lib plus stdlib; the heavy
+# imports live in the libs (and the pdfplumber-tier scripts).
 include = ["arxiv_doc_builder", "tests"]
-exclude = [
-  "arxiv_doc_builder/convert_pdf_*.py",
-  "arxiv_doc_builder/pdf_converter_lib.py",
-]
