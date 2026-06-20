@@ -100,6 +100,20 @@ def test_read_version_falls_back_when_not_installed(monkeypatch):
     assert read_version() == _expected_version()
 
 
+def test_read_version_degrades_to_unknown_on_corrupt_metadata(monkeypatch):
+    # The never-raise contract must hold for unexpected metadata failures,
+    # not just PackageNotFoundError: a corrupt/unparseable installed
+    # distribution makes metadata.version raise a generic error, which must
+    # degrade to "unknown" rather than propagate.
+    from importlib import metadata
+
+    def _raise(dist):
+        raise RuntimeError("corrupt metadata")
+
+    monkeypatch.setattr(metadata, "version", _raise)
+    assert read_version() == "unknown"
+
+
 def test_cli_version_flag_emits_version():
     # `--version` must print and exit 0 without requiring the positional
     # arxiv_id (action="version" is eager).

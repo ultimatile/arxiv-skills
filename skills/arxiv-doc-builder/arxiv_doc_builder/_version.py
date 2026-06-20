@@ -17,10 +17,12 @@ Note the distribution name passed to ``metadata.version`` is the hyphenated
 ``arxiv-doc-builder`` (``pyproject``'s ``[project] name``), not the underscored
 import name ``arxiv_doc_builder`` — they intentionally differ.
 
-Every fallback failure (missing file, parse error, absent key) degrades to
-``"unknown"`` rather than propagating, so ``--version`` never raises regardless
-of how the code was reached. ``tomllib`` is always available because
-``requires-python`` is ``>=3.11``.
+Every failure degrades to ``"unknown"`` rather than propagating, so
+``--version`` never raises regardless of how the code was reached: an
+unexpected metadata-resolution error (corrupt installed distribution) and
+every pyproject fallback failure (missing file, parse error, absent key) are
+all absorbed. ``tomllib`` is always available because ``requires-python`` is
+``>=3.11``.
 """
 
 import tomllib
@@ -41,6 +43,12 @@ def read_version() -> str:
     except metadata.PackageNotFoundError:
         # No dist-info — the common source-tree case. Fall through.
         return _version_from_pyproject()
+    except Exception:
+        # Any other resolution failure (e.g. corrupt or unparseable
+        # installed metadata) is an unexpected state, not the "not
+        # installed" signal — degrade straight to "unknown" to honor the
+        # never-raise contract rather than trusting the pyproject fallback.
+        return "unknown"
 
 
 def _version_from_pyproject() -> str:
