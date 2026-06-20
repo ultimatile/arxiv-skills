@@ -15,4 +15,17 @@ build-backend = "hatchling.build"
 packages = ["arxiv_doc_builder"]
 
 [dependency-groups]
-dev = ["pytest>=8", "pyyaml>=6"]
+dev = ["pytest>=8", "pyyaml>=6", "pyright>=1.1.0", "ruff>=0.15.18"]
+
+[tool.pyright]
+# Typecheck only the importable package surface. The convert_pdf_*.py
+# converters are standalone PEP 723 scripts that uv runs as subprocesses with
+# their own inline dependencies (pdfplumber / pdf2image / pypdf / pillow), and
+# pdf_converter_lib.py is their shared helper relying on that script-time env —
+# none are imported by the package, so they are excluded rather than reported
+# as unresolved third-party imports.
+include = ["arxiv_doc_builder"]
+exclude = [
+  "arxiv_doc_builder/convert_pdf_*.py",
+  "arxiv_doc_builder/pdf_converter_lib.py",
+]

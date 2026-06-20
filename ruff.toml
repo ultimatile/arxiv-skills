@@ -1,0 +1,6 @@
+# Repo-wide ruff config. Python is scattered across skills/ (the
+# arxiv-doc-builder package plus loose scripts under arxiv-lookup/) with no
+# root package, so this root ruff.toml is the single config anchor applied
+# uniformly to every skill. Rules stay at ruff defaults; only the target
+# version is pinned, to the lowest supported (arxiv-doc-builder is >=3.11).
+target-version = "py311"
