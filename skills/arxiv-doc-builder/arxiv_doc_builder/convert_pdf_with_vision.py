@@ -9,15 +9,23 @@ This script converts PDFs to images, which can then be read by Claude
 using the Read tool to extract text and mathematical formulas accurately.
 
 Thin argv shim: the conversion logic lives in pdf_image_lib.convert_pdf_to_images.
-The bare-sibling import resolves under `uv run --no-project` (sys.path[0] is this
-script's directory); the package is not installed in that env.
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-from pdf_image_lib import convert_pdf_to_images
+# Importable both as a package member (e.g. `python -m
+# arxiv_doc_builder.convert_pdf_with_vision` after installing the `pdf` extra)
+# and as a bare sibling script under `uv run --no-project` (sys.path[0] is this
+# script's directory, where the package is not installed). Narrow to a missing
+# top-level package so an ImportError raised *inside* pdf_image_lib isn't masked.
+try:
+    from arxiv_doc_builder.pdf_image_lib import convert_pdf_to_images
+except ModuleNotFoundError as _exc:
+    if _exc.name != "arxiv_doc_builder":
+        raise
+    from pdf_image_lib import convert_pdf_to_images
 
 
 def main():
