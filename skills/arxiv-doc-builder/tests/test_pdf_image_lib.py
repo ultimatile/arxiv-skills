@@ -6,6 +6,7 @@ external binary. The full convert_pdf_to_images path needs poppler
 skipped when poppler is absent rather than failing the suite.
 """
 
+import importlib
 import shutil
 from pathlib import Path
 
@@ -67,6 +68,24 @@ class TestExtractMetadata:
         meta = extract_metadata(pdf)
         assert meta["title"] == "fallback"
         assert meta["author"] == "Unknown"
+
+
+class TestShimsImportAsPackageMembers:
+    @pytest.mark.parametrize(
+        "module",
+        [
+            "arxiv_doc_builder.convert_pdf_with_vision",
+            "arxiv_doc_builder.convert_pdf_split_columns",
+        ],
+    )
+    def test_shim_resolves_shared_lib_under_package_import(self, module):
+        # The shims must resolve their pdf_image_lib import when loaded as
+        # package members (the `python -m arxiv_doc_builder.<shim>` path), not
+        # only as bare scripts under uv. A regression to a bare
+        # `from pdf_image_lib import ...` raises ModuleNotFoundError here, since
+        # pdf_image_lib is not a top-level module. Importing runs the module's
+        # top level but not main() (guarded by __name__ == "__main__").
+        importlib.import_module(module)
 
 
 @pytest.mark.skipif(_NO_POPPLER, reason="poppler (pdftoppm) not installed")
