@@ -58,7 +58,7 @@ convert-paper 2409.03108 --output-dir ~/papers
 
 **Requirements:**
 
-- Python 3.8+
+- Python 3.11+
 - pandoc (for LaTeX conversion: `brew install pandoc`)
 - poppler-utils (for advanced PDF processing: `brew install poppler`)
 - Python dependencies auto-installed via uv
