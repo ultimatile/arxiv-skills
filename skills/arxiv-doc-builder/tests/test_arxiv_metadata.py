@@ -333,6 +333,7 @@ def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
         {"status": METADATA_OK},
         {"status": METADATA_OK, "metadata": ArxivMetadata(), "error": "e"},
         {"status": METADATA_UNAVAILABLE},
+        {"status": METADATA_UNAVAILABLE, "error": ""},
         {"status": METADATA_UNAVAILABLE, "metadata": ArxivMetadata(), "error": "e"},
     ],
     ids=[
@@ -341,6 +342,7 @@ def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
         "ok-without-record",
         "ok-with-error",
         "failed-without-cause",
+        "failed-with-empty-cause",
         "failed-with-record",
     ],
 )

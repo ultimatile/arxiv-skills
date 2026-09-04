@@ -114,10 +114,13 @@ class MetadataFetch:
                 f"status {self.status!r} disagrees with metadata="
                 f"{'present' if self.metadata is not None else 'absent'}"
             )
-        if (self.status == METADATA_OK) != (self.error is None):
+        if self.status == METADATA_OK and self.error is not None:
+            raise ValueError(f"an ok outcome carries no cause, got {self.error!r}")
+        if self.status != METADATA_OK and not self.error:
+            # Checked by truthiness, not against None. The cause reaches the
+            # user verbatim, and an empty one prints a warning saying nothing.
             raise ValueError(
-                f"status {self.status!r} disagrees with error="
-                f"{'present' if self.error is not None else 'absent'}"
+                f"status {self.status!r} needs a cause, got {self.error!r}"
             )
 
 
