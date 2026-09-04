@@ -380,8 +380,9 @@ def build_frontmatter(
     if (arxiv_id is None) != (metadata_status == METADATA_NOT_REQUESTED):
         raise ValueError(
             f"metadata_status {metadata_status!r} does not match "
-            f"arxiv_id={'absent' if arxiv_id is None else 'present'}. Without "
-            f"an id nothing can be asked of arXiv, and with one something was"
+            f"arxiv_id={'absent' if arxiv_id is None else 'present'}. "
+            f"{METADATA_NOT_REQUESTED!r} is the only status a document with no "
+            f"id can carry, and the only one a document with an id cannot"
         )
     m = meta or ArxivMetadata()
     # Normalize every emitted text scalar here, so the block is clean and valid
