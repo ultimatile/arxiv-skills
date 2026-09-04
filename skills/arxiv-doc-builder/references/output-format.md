@@ -24,14 +24,15 @@ record behind the arXiv-derived fields was read:
 - `ok`. The record was read, and a null field is a **confirmed absence**. arXiv
   holds this paper's record and reports no value there, which supports a
   "preprint, no journal DOI" reading.
-- `unavailable`. The record was not read, because the request failed, because
-  arXiv returned no record for the id, or because arXiv rejected the id. A null
-  field is **unknown**, not confirmed. The conversion prints which of the three
-  on stderr as it runs.
-- `not_requested`. No arXiv id was supplied, and nothing was asked of arXiv. A
-  null field is likewise unknown. This reports an absent question, not a
-  failure. Of the manual PDF conversion scripts only `convert_pdf_simple.py`
-  accepts an `--arxiv-id`, and documents from the others always carry this
+- `unavailable`. The request failed, arXiv returned no record for the id, or
+  arXiv rejected the id. The converter saw a record in none of the three, which
+  leaves a null field **unknown** instead of a confirmed absence. The conversion
+  names the cause on stderr as it runs.
+- `not_requested`. The conversion ran with no arXiv id, and the record was
+  never sought. A null field is unknown here as well, for a different reason
+  than under `unavailable`, where the question was put and no record came back.
+  Among the manual PDF conversion scripts, `convert_pdf_simple.py` is the one
+  that takes an `--arxiv-id`, and documents from the rest always carry this
   token.
 
 ```yaml
