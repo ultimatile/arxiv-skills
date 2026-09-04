@@ -25,9 +25,9 @@ record behind the arXiv-derived fields was read:
   holds this paper's record and reports no value there, which supports a
   "preprint, no journal DOI" reading.
 - `unavailable`. The request failed, arXiv returned no record for the id, or
-  arXiv rejected the id. The converter saw a record in none of the three, which
-  leaves a null field **unknown** instead of a confirmed absence. The conversion
-  names the cause on stderr as it runs.
+  arXiv rejected the id. No record reached the converter, which leaves a null
+  field **unknown** instead of a confirmed absence. The conversion names the
+  cause on stderr as it runs.
 - `not_requested`. The conversion ran with no arXiv id, and the record was
   never sought. A null field is unknown here as well, for a different reason
   than under `unavailable`, where the question was put and no record came back.

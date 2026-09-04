@@ -270,7 +270,7 @@ def convert_pdf_to_markdown(
             record drives the frontmatter; when omitted (manual PDF scripts) or
             the fetch fails, the PDF's embedded title/author are used and the
             arXiv-only fields render as null. ``metadata_status`` records
-            which of the three happened.
+            which of those happened.
     """
     if double_column_pages is None:
         double_column_pages = set()
