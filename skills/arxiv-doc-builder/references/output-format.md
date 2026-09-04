@@ -15,9 +15,24 @@ This document has two kinds of content:
 
 `build_frontmatter` writes one YAML block keyed identically on both conversion
 paths (LaTeX and PDF). The schema is **total**: every key is always present.
-A value that arXiv does not report renders as YAML null (a bare `key:`), which
-a parser reads as `None` — distinguishing "arXiv reported no value" (e.g. a
-preprint with no journal DOI) from a key that was never written.
+A value that is not known renders as YAML null (a bare `key:`), which a parser
+reads as `None` and not as a missing key.
+
+What a null means depends on `metadata_status`, which records whether the arXiv
+record behind the arXiv-derived fields was read:
+
+- `ok`. The record was read, and a null field is a **confirmed absence**. arXiv
+  holds this paper's record and reports no value there, which supports a
+  "preprint, no journal DOI" reading.
+- `unavailable`. The record was not read, because the request failed, because
+  arXiv returned no record for the id, or because arXiv rejected the id. A null
+  field is **unknown**, not confirmed. The conversion prints which of the three
+  on stderr as it runs.
+- `not_requested`. No arXiv id was supplied, and nothing was asked of arXiv. A
+  null field is likewise unknown. This reports an absent question, not a
+  failure. Of the manual PDF conversion scripts only `convert_pdf_simple.py`
+  accepts an `--arxiv-id`, and documents from the others always carry this
+  token.
 
 ```yaml
 ---
@@ -30,9 +45,10 @@ primary_category: "cs.AI"
 categories:
   - "cs.AI"
   - "cs.CL"
-doi: "10.1145/1234567.1234568"   # or bare `doi:` (null) when arXiv reports none
+doi: "10.1145/1234567.1234568"   # or bare `doi:` (null); see metadata_status
 journal: "Proc. ACM, 2024"       # or bare `journal:` (null)
 source_type: "latex"             # or "pdf"
+metadata_status: "ok"            # or "unavailable" / "not_requested"
 conversion_date: "2025-12-08T10:00:00+00:00"
 abstract: |-
   Single-paragraph abstract, whitespace-normalized.
@@ -48,10 +64,14 @@ Field notes:
 - `doi` / `journal` are whatever arXiv's own record carries. Resolving a DOI
   that arXiv does not carry (e.g. via OpenAlex) is the arxiv-lookup skill's job,
   not this converter's.
-- When the arXiv fetch fails (offline), the schema still holds: `title` falls
-  back to the LaTeX `\title` or the PDF's embedded title, and the arXiv-only
-  fields render as null. Manual PDF scripts invoked without an id likewise get
-  a valid block with `arxiv_id:` null.
+- When no arXiv record backs the document the schema still holds, and two
+  fields are filled from local sources instead. `title` comes from the LaTeX
+  `\title` or the PDF's embedded title on either path. `authors` comes from the
+  PDF's embedded author on the PDF path, and stays null on the LaTeX path.
+  Every other arXiv-sourced field renders as null.
+- A populated `title` or `authors` is therefore no evidence that arXiv was
+  reached. `metadata_status` is what answers that, carrying `unavailable` when
+  the record could not be read and `not_requested` when no id was supplied.
 
 ## Body Structure
 
@@ -208,4 +228,9 @@ papers/
 The provenance metadata lives in the document's YAML frontmatter (see above).
 `.arxiv-fetch.json` is an internal sidecar used only for version-drift
 detection (`{"version": "2409.03108v2"}`); it is not the metadata surface a
-consumer reads.
+consumer reads. It is written only when the fetch obtained material *and* the
+arXiv record supplied a version. Two situations leave it absent or holding an
+older value, namely a record that could not be read and a record read without a
+version. A fetch that obtained material in either situation prints the reason on
+stderr, because it otherwise looks like an ordinary success. A fetch that
+obtained no material at all exits non-zero on its own.

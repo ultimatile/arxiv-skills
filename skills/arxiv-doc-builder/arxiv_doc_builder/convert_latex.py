@@ -21,12 +21,22 @@ from typing import Optional
 # arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_doc_builder.arxiv_metadata import build_frontmatter, fetch_metadata
+    from arxiv_doc_builder.arxiv_metadata import (
+        METADATA_UNAVAILABLE,
+        build_frontmatter,
+        fetch_metadata,
+        format_unavailable_warning,
+    )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_metadata import build_frontmatter, fetch_metadata
+    from arxiv_metadata import (
+        METADATA_UNAVAILABLE,
+        build_frontmatter,
+        fetch_metadata,
+        format_unavailable_warning,
+    )
 
 
 class AmbiguousMainTexError(Exception):
@@ -275,6 +285,10 @@ def extract_title_from_latex(tex_file: Path) -> Optional[str]:
     than picking an arbitrary file from the directory. Returns ``None`` when no
     ``\\title`` is found, so an unknown title stays null in the frontmatter
     rather than a fabricated placeholder (matching the PDF path).
+
+    Strips the markup that most often reaches the frontmatter verbatim,
+    meaning commands, braces, and the ``~`` non-breaking space. Nothing else is
+    resolved, and a title built from other constructs can still arrive mangled.
     """
     candidates = [tex_file]
     candidates += sorted(p for p in tex_file.parent.glob("*.tex") if p != tex_file)
@@ -286,6 +300,10 @@ def extract_title_from_latex(tex_file: Path) -> Optional[str]:
             title = match.group(1)
             # Clean up LaTeX commands
             title = re.sub(r"\\[a-zA-Z]+\s*", "", title)  # Remove commands
+            # ``~`` is a non-breaking space and survives the other passes,
+            # reaching the title glued between two words. The lookbehind spares
+            # ``\~``, the tilde accent.
+            title = re.sub(r"(?<!\\)~", " ", title)
             title = re.sub(r"[{}]", "", title)  # Remove braces
             title = re.sub(r"\s+", " ", title).strip()  # Normalize whitespace
             return title or None
@@ -303,7 +321,13 @@ def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
     # when the arXiv fetch did not provide one (offline / not found). Extracting
     # it lazily avoids a needless file read on the common path. conversion_date
     # is UTC-aware so the provenance stamp is unambiguous across environments.
-    meta = fetch_metadata(arxiv_id)
+    fetched = fetch_metadata(arxiv_id)
+    meta = fetched.metadata
+    if fetched.status == METADATA_UNAVAILABLE:
+        print(
+            format_unavailable_warning(arxiv_id, cause=fetched.failure_cause),
+            file=sys.stderr,
+        )
     fallback_title = None
     if meta is None or not meta.title:
         fallback_title = extract_title_from_latex(tex_file)
@@ -312,6 +336,7 @@ def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
         arxiv_id=arxiv_id,
         source_type="latex",
         conversion_date=datetime.now(timezone.utc).isoformat(),
+        metadata_status=fetched.status,
         fallback_title=fallback_title,
     )
 

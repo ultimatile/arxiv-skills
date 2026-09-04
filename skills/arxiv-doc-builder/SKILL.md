@@ -75,10 +75,9 @@ All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) 
 ## Output Structure
 
 Generated Markdown includes:
-- A YAML frontmatter block with provenance metadata (title, authors, arXiv id,
-  version, published date, categories, DOI/journal, abstract) — see
-  `references/output-format.md`; the schema is defined by
-  `arxiv_doc_builder/arxiv_metadata.py`
+- A YAML frontmatter block with provenance metadata, whose schema
+  `arxiv_doc_builder/arxiv_metadata.py` defines and
+  `references/output-format.md` documents
 - Full paper content with section hierarchy
 - Inline math: `$f(x) = x^2$`
 - Display math: `$$\int_0^\infty e^{-x} dx = 1$$`
