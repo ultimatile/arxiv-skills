@@ -334,6 +334,7 @@ def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
         {"status": METADATA_OK, "metadata": ArxivMetadata(), "error": "e"},
         {"status": METADATA_UNAVAILABLE},
         {"status": METADATA_UNAVAILABLE, "error": ""},
+        {"status": METADATA_UNAVAILABLE, "error": "   "},
         {"status": METADATA_UNAVAILABLE, "metadata": ArxivMetadata(), "error": "e"},
     ],
     ids=[
@@ -343,6 +344,7 @@ def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
         "ok-with-error",
         "failed-without-cause",
         "failed-with-empty-cause",
+        "failed-with-blank-cause",
         "failed-with-record",
     ],
 )
@@ -507,3 +509,12 @@ def test_fetch_survives_an_entry_id_the_url_parser_rejects(transport):
     assert result.status == METADATA_OK
     assert result.metadata is not None
     assert result.metadata.version == "2409.03108v2"
+
+
+def test_the_status_tokens_are_the_documented_literals():
+    # Every other status test takes both its input and its expectation from
+    # these constants, so renaming one would leave the suite green while
+    # breaking the frontmatter contract that consumers branch on.
+    assert METADATA_OK == "ok"
+    assert METADATA_UNAVAILABLE == "unavailable"
+    assert METADATA_NOT_REQUESTED == "not_requested"

@@ -61,3 +61,14 @@ def test_a_run_that_obtained_nothing_fails_instead_of_warning(
         run_main(probe=failed_probe, has_source=False, has_pdf=False)
     assert exit_info.value.code == 1
     assert capsys.readouterr().err == ""
+
+
+def test_a_read_record_without_a_version_warns_the_same_way(
+    run_main, capsys, probe_without_version
+):
+    # The cell that separates branching on the version from branching on the
+    # status. The probe succeeded here, so a warning gated on `unavailable`
+    # would stay silent while the sidecar still went unwritten.
+    paper_dir = run_main(probe=probe_without_version, has_source=True, has_pdf=False)
+    assert not (paper_dir / fetch_paper._METADATA_FILE).exists()
+    assert fetch_paper._METADATA_FILE in capsys.readouterr().err

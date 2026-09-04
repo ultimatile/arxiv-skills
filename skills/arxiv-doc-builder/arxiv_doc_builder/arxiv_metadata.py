@@ -116,9 +116,9 @@ class MetadataFetch:
             )
         if self.status == METADATA_OK and self.error is not None:
             raise ValueError(f"an ok outcome carries no cause, got {self.error!r}")
-        if self.status != METADATA_OK and not self.error:
-            # Checked by truthiness, not against None. The cause reaches the
-            # user verbatim, and an empty one prints a warning saying nothing.
+        if self.status != METADATA_OK and not (self.error or "").strip():
+            # Checked for content, not against None. The cause reaches the user
+            # verbatim, and a blank one prints a warning saying nothing.
             raise ValueError(
                 f"status {self.status!r} needs a cause, got {self.error!r}"
             )
