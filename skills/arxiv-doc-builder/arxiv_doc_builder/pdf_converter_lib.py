@@ -319,10 +319,6 @@ def convert_pdf_to_markdown(
                     file=sys.stderr,
                 )
         else:
-            # No id was supplied, so nothing was asked of arXiv and there is no
-            # outage to report. The status still has to say so: without it a
-            # reader could not tell this document's null arXiv fields from ones
-            # left null by a failed request.
             metadata_status = METADATA_NOT_REQUESTED
             meta = None
         if meta is None:
