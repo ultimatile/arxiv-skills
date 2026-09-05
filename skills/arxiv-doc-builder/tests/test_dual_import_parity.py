@@ -1,14 +1,16 @@
-"""The package/script import pairs stay usable in both configurations.
+"""Both ways of loading the dual-import modules keep working.
 
-Several modules are reachable two ways. They import their siblings through the
-installed package, falling back on ``ModuleNotFoundError`` to a bare sibling
-import for when the file runs as a script.
+Some modules load two ways, as members of the installed package and as bare
+script files whose siblings sit beside them on ``sys.path``. Each tries the
+package-qualified import of its siblings first and falls back, on a
+``ModuleNotFoundError`` naming the package, to a bare sibling import.
 
-The rest of the suite exercises only the package branch, leaving two failures
-invisible. A name added to one branch and not the other surfaces as a
-``NameError`` whenever the missing name is first used. A wrong sibling module
-name surfaces as an ``ImportError`` on the bare-script path alone. The static
-check below catches the first, the executing one the second.
+Every other test here loads them the first way, which leaves the fallback branch
+unexercised. Two failures live in it. A name present in one branch and missing
+from the other raises ``NameError`` when that name is first used. A wrong
+sibling module name raises ``ImportError``, and only when the file runs as a
+script. The static check below catches the first and the executing check the
+second.
 """
 
 import ast

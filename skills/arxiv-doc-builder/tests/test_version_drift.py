@@ -1,9 +1,9 @@
 """Tests for version drift detection logic.
 
-The pure decisions the drift check rests on, meaning whether to re-fetch, what
-version the probe reports, whether to write the record, and what to say when a
-run fetched material without advancing it. Plus the cache helpers underneath.
-None of them touches the network.
+They cover the pure decisions the drift check rests on, namely whether to
+re-fetch, what version the probe reports, whether to write the record, and what
+to say when a run fetched material without advancing it. The cache read and
+write helpers underneath are covered too. Nothing here touches the network.
 """
 
 import pytest

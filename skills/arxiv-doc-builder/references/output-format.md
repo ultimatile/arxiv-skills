@@ -65,14 +65,12 @@ Field notes:
 - `doi` / `journal` are whatever arXiv's own record carries. Resolving a DOI
   that arXiv does not carry (e.g. via OpenAlex) is the arxiv-lookup skill's job,
   not this converter's.
-- When no arXiv record backs the document the schema still holds, and two
-  fields are filled from local sources instead. `title` comes from the LaTeX
-  `\title` or the PDF's embedded title on either path. `authors` comes from the
-  PDF's embedded author on the PDF path, and stays null on the LaTeX path.
-  Every other arXiv-sourced field renders as null.
-- A populated `title` or `authors` is therefore no evidence that arXiv was
-  reached. `metadata_status` is what answers that, carrying `unavailable` when
-  the record could not be read and `not_requested` when no id was supplied.
+- Two fields survive on local sources when no arXiv record backs the document.
+  `title` comes from the LaTeX `\title` or the PDF's embedded title on either
+  path, and `authors` from the PDF's embedded author on the PDF path, staying
+  null on the LaTeX path. Every other arXiv-sourced field renders as null.
+  A populated `title` or `authors` is therefore no evidence that arXiv was
+  reached, and `metadata_status` is what answers that.
 
 ## Body Structure
 
@@ -229,9 +227,9 @@ papers/
 The provenance metadata lives in the document's YAML frontmatter (see above).
 `.arxiv-fetch.json` is an internal sidecar used only for version-drift
 detection (`{"version": "2409.03108v2"}`); it is not the metadata surface a
-consumer reads. It is written only when the fetch obtained material *and* the
-arXiv record supplied a version. Two situations leave it absent or holding an
-older value, namely a record that could not be read and a record read without a
-version. A fetch that obtained material in either situation prints the reason on
-stderr, because it otherwise looks like an ordinary success. A fetch that
-obtained no material at all exits non-zero on its own.
+consumer reads.
+
+The sidecar records a version only when the fetch obtained material and the
+arXiv record supplied one. A run that obtained material without a version
+leaves the sidecar as it found it and says so on stderr. A run that obtained no
+material at all exits non-zero.

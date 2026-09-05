@@ -315,9 +315,8 @@ def test_fetch_reports_a_parse_failure_as_unavailable(transport):
 
 
 def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
-    # A parseable response carrying no record leaves the caller exactly as
-    # uninformed as an outage does, and takes the same status. Its own cause
-    # text is what tells the two apart in the warning.
+    # Same status as an outage, since the caller learns as little either way.
+    # The cause text is what tells the two apart.
     transport(_ATOM_NO_ENTRY)
     result = fetch_metadata("2606.09995")
     assert result.status == METADATA_UNAVAILABLE
@@ -349,9 +348,6 @@ def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
     ],
 )
 def test_incoherent_fetch_outcomes_are_rejected(kwargs):
-    # One caller branches on the status, another on the record. If the two can
-    # disagree, those callers can disagree. The combination is refused at
-    # construction.
     with pytest.raises(ValueError):
         MetadataFetch(**kwargs)
 
@@ -360,8 +356,7 @@ def test_warning_names_the_paper_the_cause_and_what_the_document_records():
     text = format_unavailable_warning("2606.09995", cause="OSError: connection reset")
     assert "2606.09995" in text
     assert "OSError: connection reset" in text
-    # The sentence that stops a reader treating the nulls as confirmed
-    # absences, and the token the document carries so a machine can tell.
+    # A human reads "unknown", a machine reads the token.
     assert "unknown" in text
     assert METADATA_UNAVAILABLE in text
 
@@ -379,19 +374,18 @@ def test_warning_names_the_paper_the_cause_and_what_the_document_records():
     ids=list(METADATA_STATUSES),
 )
 def test_every_status_token_round_trips_into_the_document(status, arxiv_id):
-    # Each token is paired with the id state that can produce it, since the
-    # guard rejects the other pairings and a single id would not do. Spelling
-    # the cases out while taking the ids from METADATA_STATUSES is deliberate:
-    # a token added there and not here changes the id count only, which pytest
-    # rejects at collection.
+    # Each token needs the id state that can produce it. The guard rejects
+    # every other pairing. Taking the ids from METADATA_STATUSES while
+    # spelling the cases out means a token added there and not here leaves the
+    # two lengths unequal, and pytest fails at collection.
     parsed = _parse(_fm(_FULL, arxiv_id=arxiv_id, metadata_status=status))
     assert parsed["metadata_status"] == status
     assert set(parsed.keys()) == FRONTMATTER_KEYS
 
 
 def test_unknown_status_token_is_rejected_rather_than_rendered():
-    # The key exists to be branched on, so an unrecognized token would read as
-    # one more unknown state instead of as the typo it is.
+    # A consumer branches on this key. An unrecognized token would render as
+    # one more state to handle.
     with pytest.raises(ValueError):
         _fm(_FULL, metadata_status="degraded")
 
@@ -441,8 +435,8 @@ def test_a_document_with_no_arxiv_id_cannot_claim_a_record_was_sought(status):
 
 
 def test_a_document_with_an_arxiv_id_cannot_claim_none_was_sought():
-    # The converse, and why the guard is an equivalence. An id was supplied,
-    # something was asked of arXiv, and the answer is ok or unavailable.
+    # This is the converse the equivalence adds. An id was supplied, arXiv was
+    # asked, and the answer is either ok or unavailable.
     with pytest.raises(ValueError):
         _fm(_FULL, arxiv_id="2606.09995", metadata_status=METADATA_NOT_REQUESTED)
 
@@ -460,10 +454,10 @@ _ATOM_ERROR_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
 
 
 def test_fetch_reports_an_arxiv_error_report_as_unavailable(transport):
-    # A rejected id does not give an empty feed. arXiv answers with an entry
-    # that parses like a record, and taking it at face value would write
-    # title "Error" and author "arXiv api core" into the document under
-    # metadata_status "ok", where a null field reads as a confirmed absence.
+    # arXiv answers a rejected id with an entry, not with an empty feed, and
+    # that entry parses like a record. Taken at face value it writes title
+    # "Error" and author "arXiv api core" into a document reporting ok, where
+    # a null field reads as a confirmed absence.
     transport(_ATOM_ERROR_ENTRY)
     result = fetch_metadata("2409.3108")
     assert result.status == METADATA_UNAVAILABLE
@@ -491,8 +485,9 @@ _ATOM_UNPARSEABLE_ID = b"""<?xml version="1.0" encoding="UTF-8"?>
 
 
 def test_fetch_names_a_cause_when_the_error_entry_carries_no_summary(transport):
-    # The cause reaches the user verbatim, so an empty one would print a
-    # warning that says nothing about why.
+    # The warning prints the cause verbatim. An error entry can arrive without
+    # a summary, and the fallback literal is what keeps that line from being
+    # blank.
     transport(_ATOM_ERROR_WITHOUT_SUMMARY)
     result = fetch_metadata("2409.3108")
     assert result.status == METADATA_UNAVAILABLE
