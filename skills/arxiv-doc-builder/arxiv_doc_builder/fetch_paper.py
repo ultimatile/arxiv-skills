@@ -20,36 +20,42 @@ from typing import Optional
 # fallback — only a genuinely absent top-level package falls through.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_doc_builder.arxiv_metadata import fetch_metadata
+    from arxiv_doc_builder.arxiv_metadata import MetadataFetch, fetch_metadata
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
     # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_metadata import fetch_metadata
+    from arxiv_metadata import MetadataFetch, fetch_metadata
 
 
 _METADATA_FILE = ".arxiv-fetch.json"
 
 
-def _get_latest_version(arxiv_id: str) -> Optional[str]:
-    """Query the arXiv API for the latest version string.
+def _probe_metadata(arxiv_id: str) -> MetadataFetch:
+    """Query the arXiv API for the record the drift check reads.
 
-    Returns e.g. ``"2409.03108v2"`` on success, or ``None`` on any
-    failure (network error, parse error, offline). ``None`` signals
-    that callers should trust the cache.
+    Returns the whole outcome, not just a version string. An unreachable API
+    and a record without a version tail both leave the sidecar unwritten, and
+    only the outcome tells them apart.
 
-    Delegates to the shared ``fetch_metadata`` so the Atom request/parse
-    idiom lives in one place; the returned ``version`` is the full versioned
-    tail this drift check persists to the sidecar unchanged. A short timeout
-    keeps the pre-fetch probe lightweight.
+    Delegates to ``fetch_metadata`` for the Atom request. ``_latest_version``
+    reads the version out. A short timeout keeps the pre-fetch probe light.
 
-    Assumes ``arxiv_id`` has already been validated to canonical form
-    by ``validate_arxiv_id``; no zero-padding is performed here.
+    Assumes ``arxiv_id`` has already been validated to canonical form by
+    ``validate_arxiv_id``. No zero-padding happens here.
     """
-    meta = fetch_metadata(arxiv_id, timeout=5)
-    return meta.version if meta else None
+    return fetch_metadata(arxiv_id, timeout=5)
+
+
+def _latest_version(probe: MetadataFetch) -> Optional[str]:
+    """The version string the probe reports, or ``None`` when it reports none.
+
+    The rest of this module reads ``None`` as "no usable answer from the API",
+    whether the request failed or the record carried no version tail.
+    """
+    return probe.metadata.version if probe.metadata else None
 
 
 def _read_cached_version(paper_dir: Path) -> Optional[str]:
@@ -62,6 +68,44 @@ def _read_cached_version(paper_dir: Path) -> Optional[str]:
         return data.get("version")
     except Exception:
         return None
+
+
+def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) -> bool:
+    """Persist the fetched version, reporting whether it was persisted.
+
+    Writes only with a version *and* material. Recording a version for an empty
+    paper directory would misrepresent it. Returns ``False`` having written
+    nothing otherwise.
+    """
+    if latest is None or not fetched:
+        return False
+    _write_cached_version(paper_dir, latest)
+    return True
+
+
+def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
+    """The warning for a run that fetched material but recorded no version.
+
+    Composed here, not through the conversion paths' shared warning. This step
+    writes no frontmatter and has no null fields to explain, and it fires on a
+    probe that may have succeeded.
+
+    Call only when ``_record_version`` returned ``False`` for a run that did
+    obtain material.
+    """
+    if _latest_version(probe) is not None:
+        raise ValueError(
+            "the probe reported a version, so the sidecar was not skipped for "
+            "the reason this warning states"
+        )
+    if probe.error is not None:
+        situation = f"could not read the arXiv record for {arxiv_id}: {probe.error}"
+    else:
+        situation = f"the arXiv record for {arxiv_id} carried no version"
+    return (
+        f"WARNING: {situation}\n"
+        f"  Version drift was not checked, and {_METADATA_FILE} was not updated."
+    )
 
 
 def _write_cached_version(paper_dir: Path, version: str) -> None:
@@ -329,7 +373,8 @@ def main():
     print()
 
     # Check for version drift before fetching
-    latest = _get_latest_version(args.arxiv_id)
+    probe = _probe_metadata(args.arxiv_id)
+    latest = _latest_version(probe)
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:
         cached = _read_cached_version(paper_dir)
@@ -355,8 +400,9 @@ def main():
     )
 
     # Record version after successful fetch
-    if latest is not None and (has_source or has_pdf):
-        _write_cached_version(paper_dir, latest)
+    fetched_any = has_source or has_pdf
+    if not _record_version(paper_dir, latest, fetched=fetched_any) and fetched_any:
+        print(_format_sidecar_skip_warning(args.arxiv_id, probe), file=sys.stderr)
 
     # Summary
     print()
@@ -366,7 +412,7 @@ def main():
     if has_pdf:
         print("✓ PDF available")
 
-    if not (has_source or has_pdf):
+    if not fetched_any:
         print("✗ Failed to fetch any materials")
         sys.exit(1)
 

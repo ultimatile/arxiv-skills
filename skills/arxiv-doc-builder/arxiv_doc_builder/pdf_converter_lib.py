@@ -5,6 +5,7 @@ Shared library for PDF to Markdown conversion.
 This module provides common functions used by the PDF converter scripts.
 """
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Set
@@ -17,14 +18,24 @@ from pypdf import PdfReader
 # masked. arxiv_metadata is stdlib-only, so it imports under the uv env too.
 try:
     from arxiv_doc_builder.arxiv_metadata import (
+        METADATA_NOT_REQUESTED,
+        METADATA_UNAVAILABLE,
         ArxivMetadata,
         build_frontmatter,
         fetch_metadata,
+        format_unavailable_warning,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
-    from arxiv_metadata import ArxivMetadata, build_frontmatter, fetch_metadata
+    from arxiv_metadata import (
+        METADATA_NOT_REQUESTED,
+        METADATA_UNAVAILABLE,
+        ArxivMetadata,
+        build_frontmatter,
+        fetch_metadata,
+        format_unavailable_warning,
+    )
 
 
 def parse_page_ranges(range_str: Optional[str]) -> Set[int]:
@@ -258,10 +269,17 @@ def convert_pdf_to_markdown(
         arxiv_id: arXiv ID for authoritative metadata. When given, the arXiv
             record drives the frontmatter; when omitted (manual PDF scripts) or
             the fetch fails, the PDF's embedded title/author are used and the
-            arXiv-only fields render as null.
+            arXiv-only fields render as null. ``metadata_status`` records
+            which of those happened.
     """
     if double_column_pages is None:
         double_column_pages = set()
+    # One notion of "no id" for the whole function. The status branch below
+    # tests truthiness while the frontmatter builder tests for None, so an
+    # empty string would take the no-id branch here and then be rejected there
+    # for disagreeing with the status it produced, aborting a conversion over
+    # an id that is merely absent.
+    arxiv_id = arxiv_id or None
 
     print(f"Converting PDF: {pdf_path}")
     print(f"Output: {output_path}")
@@ -291,7 +309,18 @@ def convert_pdf_to_markdown(
         # back to the PDF's embedded title/author, leaving arXiv-only fields
         # null. The old bold "Source/Converted/Pages" header is intentionally
         # dropped in favour of this single provenance surface.
-        meta = fetch_metadata(arxiv_id) if arxiv_id else None
+        if arxiv_id:
+            fetched = fetch_metadata(arxiv_id)
+            metadata_status = fetched.status
+            meta = fetched.metadata
+            if metadata_status == METADATA_UNAVAILABLE:
+                print(
+                    format_unavailable_warning(arxiv_id, cause=fetched.failure_cause),
+                    file=sys.stderr,
+                )
+        else:
+            metadata_status = METADATA_NOT_REQUESTED
+            meta = None
         if meta is None:
             pdf_author = metadata["author"]
             meta = ArxivMetadata(
@@ -304,6 +333,7 @@ def convert_pdf_to_markdown(
             source_type="pdf",
             # UTC-aware so the provenance stamp is unambiguous across environments.
             conversion_date=datetime.now(timezone.utc).isoformat(),
+            metadata_status=metadata_status,
             fallback_title=metadata["title"],
         )
         markdown_parts.append(header)
