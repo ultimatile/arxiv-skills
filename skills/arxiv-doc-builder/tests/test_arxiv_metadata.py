@@ -356,7 +356,6 @@ def test_warning_names_the_paper_the_cause_and_what_the_document_records():
     text = format_unavailable_warning("2606.09995", cause="OSError: connection reset")
     assert "2606.09995" in text
     assert "OSError: connection reset" in text
-    # A human reads "unknown", a machine reads the token.
     assert "unknown" in text
     assert METADATA_UNAVAILABLE in text
 
@@ -391,9 +390,9 @@ def test_unknown_status_token_is_rejected_rather_than_rendered():
 
 
 def test_a_populated_record_does_not_imply_the_arxiv_record_was_read():
-    # The PDF path supplies a record built from the PDF's own title when arXiv
-    # is unreachable. The status, not the presence of a record, is what says
-    # whether arXiv was reached.
+    # The PDF path builds a record from the PDF's own title when arXiv is
+    # unreachable. A present record is not evidence that arXiv was reached.
+    # Only metadata_status answers that.
     from_pdf = ArxivMetadata(title="From The PDF", authors=["Jane Doe"])
     parsed = _parse(
         _fm(from_pdf, source_type="pdf", metadata_status=METADATA_UNAVAILABLE)

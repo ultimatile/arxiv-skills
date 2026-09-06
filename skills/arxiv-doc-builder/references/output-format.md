@@ -231,5 +231,5 @@ consumer reads.
 
 The sidecar records a version only when the fetch obtained material and the
 arXiv record supplied one. A run that obtained material without a version
-leaves the sidecar as it found it and says so on stderr. A run that obtained no
-material at all exits non-zero.
+writes nothing to it, leaving any earlier value in place, and says so on
+stderr. A run that obtained no material at all exits non-zero.
