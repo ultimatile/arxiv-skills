@@ -5,7 +5,7 @@ schema must be total (every key always present) and the emitted text must be
 valid, re-parseable YAML, including the absence-confirmation contract where a
 value missing from the record renders as YAML null instead of an absent key.
 That null confirms an absence only under ``metadata_status: ok``. Under the
-other tokens the record was never read and the same null reports ignorance,
+other tokens no usable record was read and the same null reports ignorance,
 which is why the tests below pin the status alongside the fields it qualifies.
 
 The round-trip assertions use PyYAML (a test-only dependency) as an independent
@@ -13,8 +13,9 @@ oracle; ``importorskip`` keeps the suite green in a bare environment without it,
 while the structural assertions below pin the contract with no dependency.
 
 The lookup tests replace the HTTP transport and read DataCite responses from
-``fixtures/datacite``, trimmed from real responses to the fields the mapping
-reads, so nothing here reaches the network.
+``fixtures/datacite``, reduced from real responses to the attributes the
+mapping reads (each entry kept as DataCite serves it) plus the record's DOI,
+type and version count, so nothing here reaches the network.
 """
 
 import io
@@ -22,8 +23,11 @@ import math
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 import urllib.error
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Optional
 
@@ -364,6 +368,29 @@ def test_the_abstract_is_the_abstract_description_not_the_comments(transport):
     assert "Main text: 6 pages" not in result.metadata.abstract
 
 
+def test_html_entities_in_record_prose_are_decoded(transport):
+    # DataCite's abstract for 1207.7214 stores "H->ZZ" as "H-&gt;ZZ".
+    transport(_record("1207.7214"))
+    result = fetch_metadata("1207.7214")
+    assert result.metadata is not None
+    assert result.metadata.abstract is not None
+    assert "H->ZZ" in result.metadata.abstract
+    assert "&gt;" not in result.metadata.abstract
+
+
+def test_html_entities_in_titles_and_author_names_are_decoded():
+    attributes = {
+        "titles": [{"title": "A &amp; B"}],
+        "creators": [
+            {"givenName": "J&ouml;rg", "familyName": "M&uuml;ller"},
+            {"name": "R&amp;D Group"},
+        ],
+    }
+    meta = arxiv_metadata._parse_record("2001.00001", attributes)
+    assert meta.title == "A & B"
+    assert meta.authors == ["Jörg Müller", "R&D Group"]
+
+
 @pytest.mark.parametrize("revision", [1, 2])
 def test_a_requested_revision_is_recorded_and_looked_up_by_the_bare_id(
     transport, revision
@@ -376,11 +403,24 @@ def test_a_requested_revision_is_recorded_and_looked_up_by_the_bare_id(
     assert result.metadata.version == f"2409.03108v{revision}"
 
 
+def test_a_requested_revision_with_no_listed_revisions_is_ok(transport):
+    # With no Submitted dates there is no latest revision to compare against, so
+    # the requested one is not rejected.
+    transport(b'{"data": {"attributes": {"titles": [{"title": "T"}]}}}')
+    result = fetch_metadata("2001.00001v3")
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.version == "2001.00001v3"
+
+
 def test_a_requested_revision_beyond_the_record_is_unavailable(transport):
     transport(_record("2409.03108"))
     result = fetch_metadata("2409.03108v3")
     assert result.status == METADATA_UNAVAILABLE
-    assert result.error == "DataCite lists 2 versions for 2409.03108, not 2409.03108v3"
+    assert result.error == (
+        "2409.03108v3 is later than v2, the latest revision DataCite lists for "
+        "2409.03108"
+    )
 
 
 # --- lookup: mapping rules on shapes the stored records do not cover --------
@@ -410,6 +450,22 @@ def test_no_submitted_date_leaves_version_and_published_null():
     meta = arxiv_metadata._parse_record("2001.00001", attributes)
     assert meta.version is None
     assert meta.published is None
+
+
+@pytest.mark.parametrize(
+    ("date", "published"),
+    [
+        ("2020-01-02T03:04:05Z", "2020-01-02"),
+        ("2020-01-02", "2020-01-02"),
+        ("2020-01", None),
+        ("2020", None),
+    ],
+)
+def test_published_is_null_unless_the_v1_date_carries_a_calendar_date(date, published):
+    attributes = {
+        "dates": [{"date": date, "dateType": "Submitted", "dateInformation": "v1"}]
+    }
+    assert arxiv_metadata._parse_record("2001.00001", attributes).published == published
 
 
 def test_a_record_with_wrongly_shaped_fields_parses_to_empty_fields():
@@ -568,10 +624,63 @@ def test_an_unanticipated_exception_in_the_lookup_is_still_unavailable(
     assert result.error == "RuntimeError: boom"
 
 
+def test_surrogates_in_codes_and_dois_are_dropped_before_they_reach_a_handoff(tmp_path):
+    # A JSON string can carry a lone surrogate through a \u escape, which no
+    # UTF-8 file can hold.
+    attributes = arxiv_metadata.json.loads(
+        r"""
+        {
+          "subjects": [{"subject": "Broken (\ud800)", "subjectScheme": "arXiv"}],
+          "relatedIdentifiers": [
+            {
+              "relationType": "IsVersionOf",
+              "relatedIdentifierType": "DOI",
+              "relatedIdentifier": "10.1/a\udfff"
+            }
+          ]
+        }
+        """
+    )
+    meta = arxiv_metadata._parse_record("2001.00001", attributes)
+    assert meta.categories == []
+    assert meta.doi == "10.1/a"
+    path = tmp_path / "handoff.json"
+    fetch = MetadataFetch(METADATA_OK, metadata=meta)
+    write_metadata_handoff(path, "2001.00001", fetch)
+    assert read_metadata_handoff(path, "2001.00001") == fetch
+
+
+def test_a_worker_that_cannot_start_is_unavailable(monkeypatch):
+    class Unstartable:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(arxiv_metadata.threading, "Thread", Unstartable)
+    result = fetch_metadata("2409.03108")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.error == "RuntimeError: can't start new thread"
+
+
+# The test ends the worker with an uncaught SystemExit on purpose, which pytest
+# reports as an unhandled thread exception.
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_worker_that_ends_without_a_result_is_not_reported_as_late(monkeypatch):
+    def exit_thread(*_args):
+        raise SystemExit
+
+    monkeypatch.setattr(arxiv_metadata, "_lookup", exit_thread)
+    result = fetch_metadata("2409.03108", deadline=5)
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.error == "metadata lookup ended without a result"
+
+
 # --- lookup: the deadline ----------------------------------------------------
 
 
-def test_the_deadline_bounds_the_whole_lookup(transport):
+def test_the_deadline_bounds_how_long_the_call_waits(transport):
     def slow():
         time.sleep(2)
         return io.BytesIO(_record("2409.03108"))
@@ -611,10 +720,56 @@ def test_the_process_exits_without_waiting_for_an_abandoned_lookup():
     assert elapsed < 10
 
 
-@pytest.mark.parametrize("deadline", [0, -1.0, math.nan, math.inf])
-def test_a_deadline_that_cannot_bound_the_lookup_is_rejected(deadline):
+@pytest.mark.parametrize(
+    "deadline",
+    [0, -1.0, math.nan, math.inf, threading.TIMEOUT_MAX * 2, 10**400],
+    ids=["zero", "negative", "nan", "inf", "above-timeout-max", "huge-int"],
+)
+def test_a_deadline_that_cannot_bound_the_lookup_is_rejected(deadline, monkeypatch):
+    # A finite value above threading.TIMEOUT_MAX would otherwise start the
+    # request and then make worker.join raise OverflowError.
+    started: list[object] = []
+    monkeypatch.setattr(arxiv_metadata, "_lookup", lambda *a: started.append(a))
     with pytest.raises(ValueError):
         fetch_metadata("2409.03108", deadline=deadline)
+    assert started == []
+
+
+def test_the_largest_accepted_deadline_is_timeout_max(transport):
+    transport(OSError("offline"))
+    result = fetch_metadata("2409.03108", deadline=threading.TIMEOUT_MAX)
+    assert result.error == "OSError: offline"
+
+
+def test_the_request_uses_the_deadline_as_its_socket_timeout(monkeypatch):
+    # A request that stalls outright ends on its own only because urlopen
+    # receives the deadline as its timeout.
+    timeouts: list[object] = []
+
+    def fake_urlopen(url, timeout=None):
+        timeouts.append(timeout)
+        raise OSError("offline")
+
+    monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
+    fetch_metadata("2409.03108", deadline=0.75)
+    assert timeouts == [0.75]
+
+
+@pytest.mark.parametrize(
+    "deadline",
+    [Decimal("5"), Fraction(5), True, "5", None],
+    ids=["decimal", "fraction", "bool", "str", "none"],
+)
+def test_a_deadline_that_is_not_an_int_or_float_is_rejected_before_the_lookup(
+    deadline, monkeypatch
+):
+    # Decimal and Fraction pass the range check, so without the type check the
+    # request would start and worker.join would raise afterwards.
+    started: list[object] = []
+    monkeypatch.setattr(arxiv_metadata, "_lookup", lambda *a: started.append(a))
+    with pytest.raises(TypeError):
+        fetch_metadata("2409.03108", deadline=deadline)
+    assert started == []
 
 
 # --- handoff between processes -----------------------------------------------
@@ -629,9 +784,21 @@ def test_a_deadline_that_cannot_bound_the_lookup_is_rejected(deadline):
             METADATA_OK,
             metadata=ArxivMetadata(title='q"uote \\ back\nline é \x85', authors=[""]),
         ),
+        MetadataFetch(
+            METADATA_OK,
+            metadata=ArxivMetadata(
+                title="   ", categories=["\ud800"], doi="10.1/\udfff"
+            ),
+        ),
         MetadataFetch(METADATA_UNAVAILABLE, error="URLError: timed out"),
     ],
-    ids=["full", "empty-record", "string-edges", "unavailable"],
+    ids=[
+        "full",
+        "empty-record",
+        "string-edges",
+        "blank-and-unencodable",
+        "unavailable",
+    ],
 )
 def test_a_handoff_reads_back_equal_to_what_was_written(tmp_path, fetch):
     path = tmp_path / "handoff.json"

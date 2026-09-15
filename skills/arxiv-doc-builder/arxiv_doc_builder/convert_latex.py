@@ -25,8 +25,9 @@ try:
         METADATA_UNAVAILABLE,
         build_frontmatter,
         fetch_metadata,
+        add_metadata_handoff_option,
         format_unavailable_warning,
-        read_metadata_handoff,
+        resolve_metadata,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -36,8 +37,9 @@ except ModuleNotFoundError as _exc:
         METADATA_UNAVAILABLE,
         build_frontmatter,
         fetch_metadata,
+        add_metadata_handoff_option,
         format_unavailable_warning,
-        read_metadata_handoff,
+        resolve_metadata,
     )
 
 
@@ -334,10 +336,7 @@ def post_process_markdown(
     # Extracting it lazily avoids a needless file read on the common path.
     # conversion_date is UTC-aware so the provenance stamp is unambiguous
     # across environments.
-    if metadata_handoff is not None:
-        fetched = read_metadata_handoff(metadata_handoff, arxiv_id)
-    else:
-        fetched = fetch_metadata(arxiv_id)
+    fetched = resolve_metadata(arxiv_id, metadata_handoff, fetch_metadata)
     meta = fetched.metadata
     if fetched.status == METADATA_UNAVAILABLE:
         print(
@@ -419,9 +418,7 @@ def main():
         type=Path,
         help="Specify the main .tex file directly (overrides auto-detection)",
     )
-    # The lookup convert_paper already made. A plain string: an argparse type=
-    # failure would exit 2, which is reserved for the ambiguous-main-.tex signal.
-    parser.add_argument("--metadata-handoff", help=argparse.SUPPRESS)
+    add_metadata_handoff_option(parser)
 
     args = parser.parse_args()
 
@@ -513,9 +510,7 @@ def main():
         output_md,
         args.arxiv_id,
         tex_file,
-        metadata_handoff=(
-            Path(args.metadata_handoff) if args.metadata_handoff is not None else None
-        ),
+        metadata_handoff=args.metadata_handoff,
     )
 
     # Copy figures

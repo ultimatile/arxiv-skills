@@ -24,7 +24,7 @@ try:
         build_frontmatter,
         fetch_metadata,
         format_unavailable_warning,
-        read_metadata_handoff,
+        resolve_metadata,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -36,7 +36,7 @@ except ModuleNotFoundError as _exc:
         build_frontmatter,
         fetch_metadata,
         format_unavailable_warning,
-        read_metadata_handoff,
+        resolve_metadata,
     )
 
 
@@ -319,10 +319,7 @@ def convert_pdf_to_markdown(
         # null. The old bold "Source/Converted/Pages" header is intentionally
         # dropped in favour of this single provenance surface.
         if arxiv_id:
-            if metadata_handoff is not None:
-                fetched = read_metadata_handoff(metadata_handoff, arxiv_id)
-            else:
-                fetched = fetch_metadata(arxiv_id)
+            fetched = resolve_metadata(arxiv_id, metadata_handoff, fetch_metadata)
             metadata_status = fetched.status
             meta = fetched.metadata
             if metadata_status == METADATA_UNAVAILABLE:

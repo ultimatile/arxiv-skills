@@ -16,18 +16,23 @@ This document has two kinds of content:
 `build_frontmatter` writes one YAML block keyed identically on both conversion
 paths (LaTeX and PDF). The schema is **total**: every key is always present.
 A value that is not known renders as YAML null (a bare `key:`), which a parser
-reads as `None` and not as a missing key.
+reads as `None` and not as a missing key. The one exception is `categories`,
+which renders as an empty list (`categories: []`) instead.
 
-What a null means depends on `metadata_status`, which records whether the
+In the rest of this section, a null field includes an empty `categories`.
+
+What a null means depends on `metadata_status`, which records whether a usable
 metadata record behind the record-derived fields was read. That record is the
 one arXiv registers at DataCite for the paper's DOI, `10.48550/arXiv.<id>`:
 
 - `ok`. The record was read, and a null field is a **confirmed absence**. The
   record exists and reports no value there, which supports a "preprint, no
   journal DOI" reading.
-- `unavailable`. The lookup failed or did not finish in time, or DataCite has
-  no record for the id. No record reached the converter, which leaves a null
-  field **unknown** instead of a confirmed absence. The conversion names the
+- `unavailable`. The lookup failed or did not finish in time, DataCite has no
+  record for the id, or the id names a revision later than the latest one the
+  record lists. No
+  usable record reached the converter, which leaves a null field **unknown**
+  instead of a confirmed absence. The conversion names the
   cause on stderr as it runs.
 - `not_requested`. The conversion ran with no arXiv id, and the record was
   never sought. A null field is unknown here as well, for a different reason
@@ -61,19 +66,28 @@ Field notes:
 - `version` is the full versioned arXiv id (e.g. `2409.03108v2`, legacy
   `hep-th/9901001v3`). For an id given without a version it names the latest
   revision the record lists. For an id given with one it names that revision,
-  while `title`, `authors`, and `abstract` still describe the record, which
+  while every other record-derived field still describes the record, which
   follows the latest revision.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
 - `doi` holds the DOIs the record lists as versions of the paper, separated by
-  spaces and spelled as the record stores them, which is lowercase. Resolving a
-  DOI that the record does not carry (e.g. via OpenAlex) is the arxiv-lookup
+  spaces and spelled as the record stores them, except that unprintable
+  characters are dropped and whitespace is collapsed and trimmed.
+  Resolving a
+  DOI that the record does not carry is the arxiv-lookup
   skill's job, not this converter's.
-- `primary_category` is the first code in `categories`.
+- `categories` lists the arXiv category codes as DataCite's record gives them,
+  in the record's order. For an alias pair such as `math-ph` and `math.MP`, the
+  record carries one code, the one the paper's arXiv abstract page shows.
+- `primary_category` is the first code in `categories`. DataCite's record marks
+  no category as primary. Its first code has matched the primary category on the
+  arXiv abstract page in every record compared, but DataCite does not document
+  that ordering.
 - Two fields survive on local sources when no record backs the document.
   `title` comes from the LaTeX `\title` or the PDF's embedded title on either
   path, and `authors` from the PDF's embedded author on the PDF path, staying
-  null on the LaTeX path. Every other record-sourced field renders as null.
+  null on the LaTeX path. Every other record-derived field renders as null, and
+`categories` as `[]`.
   A populated `title` or `authors` is therefore no evidence that the record was
   read, and `metadata_status` is what answers that.
 

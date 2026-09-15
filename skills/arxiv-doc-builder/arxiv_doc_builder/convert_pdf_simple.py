@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 # Import shared library
+from arxiv_metadata import add_metadata_handoff_option
 from pdf_converter_lib import convert_pdf_to_markdown
 
 
@@ -32,9 +33,7 @@ def main():
     parser.add_argument(
         "--arxiv-id", help="arXiv ID for authoritative frontmatter metadata (optional)"
     )
-    # The lookup convert_paper already made. A plain string: an argparse type=
-    # failure would exit 2, which convert_paper reserves for another signal.
-    parser.add_argument("--metadata-handoff", help=argparse.SUPPRESS)
+    add_metadata_handoff_option(parser)
 
     args = parser.parse_args()
 
@@ -51,9 +50,7 @@ def main():
         pages_to_extract=None,  # All pages
         double_column_pages=None,  # Single-column
         arxiv_id=args.arxiv_id,
-        metadata_handoff=(
-            Path(args.metadata_handoff) if args.metadata_handoff is not None else None
-        ),
+        metadata_handoff=args.metadata_handoff,
     )
 
 

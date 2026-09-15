@@ -22,8 +22,9 @@ try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_doc_builder.arxiv_metadata import (
         MetadataFetch,
+        add_metadata_handoff_option,
         fetch_metadata,
-        read_metadata_handoff,
+        resolve_metadata,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -33,8 +34,9 @@ except ModuleNotFoundError as _exc:
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_metadata import (
         MetadataFetch,
+        add_metadata_handoff_option,
         fetch_metadata,
-        read_metadata_handoff,
+        resolve_metadata,
     )
 
 
@@ -48,7 +50,7 @@ def _probe_metadata(arxiv_id: str) -> MetadataFetch:
     record without a version both leave the sidecar unwritten, and only the
     outcome tells them apart.
 
-    Delegates to ``fetch_metadata``, which bounds the lookup's wall time.
+    Delegates to ``fetch_metadata``, which bounds how long it waits for the lookup.
     ``_latest_version`` reads the version out. A run started by
     ``convert_paper`` is handed that script's lookup through
     ``--metadata-handoff`` and does not call this.
@@ -109,7 +111,7 @@ def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
             "the reason this warning states"
         )
     if probe.error is not None:
-        situation = f"could not read DataCite's record for {arxiv_id}: {probe.error}"
+        situation = f"no usable DataCite record for {arxiv_id}: {probe.error}"
     else:
         situation = f"DataCite's record for {arxiv_id} carried no version"
     return (
@@ -363,10 +365,7 @@ def main():
         default=Path("papers"),
         help="Output directory (default: ./papers)",
     )
-    # The lookup convert_paper already made, so this run does not repeat it.
-    # A plain string: an argparse type= failure would exit 2, which is
-    # reserved for the ambiguous-main-.tex signal.
-    parser.add_argument("--metadata-handoff", help=argparse.SUPPRESS)
+    add_metadata_handoff_option(parser)
     args = parser.parse_args()
 
     try:
@@ -390,10 +389,7 @@ def main():
     print()
 
     # Check for version drift before fetching
-    if args.metadata_handoff is not None:
-        probe = read_metadata_handoff(Path(args.metadata_handoff), args.arxiv_id)
-    else:
-        probe = _probe_metadata(args.arxiv_id)
+    probe = resolve_metadata(args.arxiv_id, args.metadata_handoff, _probe_metadata)
     latest = _latest_version(probe)
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:

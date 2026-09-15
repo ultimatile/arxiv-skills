@@ -12,7 +12,7 @@ Automatically converts arXiv papers into structured Markdown documentation for i
 This skill automatically:
 
 1. **Fetches paper materials from arXiv**
-   - Attempts to download LaTeX source (preferred) and PDF (idempotent — skips if cached)
+   - Attempts to download LaTeX source (preferred) and PDF (which files already downloaded are reused is described under How It Works)
    - Handles all HTTP requests, extraction, and directory setup
 
 2. **Converts LaTeX source to structured Markdown** (happy path)
@@ -60,13 +60,22 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
   from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
 
 The orchestrator:
-1. Looks up the paper's metadata record once, with a time limit, and hands the result to the steps below; a failed lookup is recorded as `metadata_status: unavailable` and does not stop the conversion
-2. Calls `fetch_paper.py` to download available materials — source if available + PDF (idempotent — cached files are reused)
+1. Looks up the paper's metadata record once, with a time limit, and hands the result to the steps below; the conversion continues whatever the outcome, which the frontmatter records in `metadata_status` (see `references/output-format.md`)
+2. Calls `fetch_paper.py` to download available materials — source if available + PDF. Files already downloaded are reused, except in the case described under Re-download of cached files below
 3. Detects available format (LaTeX source or PDF)
 4. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
 5. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
 
 The metadata lookup, downloads (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
+
+### Re-download of cached files
+
+When the metadata lookup reports a version that `.arxiv-fetch.json` does not already record, the fetch step does not reuse the cached files. It deletes the cached `source/` directory, including any edit made to it, and downloads the source and the PDF again. A failed PDF download also removes the cached PDF.
+
+An edit made to the source, such as a troubleshooting fix below, survives a run only when the fetch step's output shows `✓ Source already present ...`. Otherwise the output shows `Fetching source from ...`, and the summary the fetch step prints at its end tells which of two things happened:
+
+- **The fetch step's summary lists `✓ LaTeX source available`.** The source was downloaded again, and the edit is gone. Apply the edit again and re-run.
+- **The fetch step's summary does not list `✓ LaTeX source available`.** The source was deleted and not replaced, so there is no source to edit, and the run did not convert from it. Re-run once, with the same arguments. If the fetch step's summary then lists `✓ LaTeX source available`, apply the edit again and re-run. If it still does not, stop re-running: the source cannot be downloaded now. When that summary lists `✓ PDF available`, the paper can still be converted from the PDF, as described under PDF Conversion Scripts.
 
 ### Source Detection
 
@@ -169,7 +178,7 @@ Main .tex selection is ambiguous. Re-run with --tex-file pointing at the correct
 If you originally passed --output-dir, include the same value in the re-run.
 ```
 
-To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file. The fetch step is idempotent, so the already-downloaded source is reused rather than downloaded again:
+To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file (whether the re-run reuses the already-downloaded source is described under How It Works):
 
 ```bash
 convert-paper 1911.04882 --tex-file /path/to/1911.04882/source/main_paper.tex
@@ -185,7 +194,7 @@ When pandoc fails on a LaTeX source, the error may point to `\end{document}` wit
 
 1. **Binary search for the failing line.** Extract the body (`\begin{document}` to `\end{document}`), then test pandoc with increasing prefixes to find the first line that causes failure.
 2. **Check that line for brace mismatches.** The most common cause is an unbalanced `{` or `}` in the LaTeX source. LaTeX's TeX engine silently tolerates these, but pandoc's structured parser does not.
-3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. The fetch step is idempotent, so the cached source and PDF are reused rather than downloaded again.
+3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. Whether the fix survives the re-run, and what to do if it does not, is described under Re-download of cached files.
 
 ### Example
 
@@ -225,7 +234,7 @@ TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument);
 
 ### Fix: strip the style-only `.sty` (safe, and provably output-neutral here)
 
-Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`, then re-run — the fetch step is idempotent, so the cached source is reused:
+Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`, then re-run. Whether this change survives the re-run, and what to do if it does not, is described under Re-download of cached files:
 
 ```bash
 mv source/arxiv.sty source/arxiv.sty.bak   # pandoc no longer reads it

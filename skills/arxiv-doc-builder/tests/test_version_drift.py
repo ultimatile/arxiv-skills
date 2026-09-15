@@ -148,10 +148,10 @@ def test_sidecar_skip_warning_names_the_missing_version_when_the_record_was_read
     assert "2409.03108" in text
     assert "no version" in text
     assert _METADATA_FILE in text
-    # The record *was* read here, so the warning must not say otherwise. A
+    # A usable record *was* read here, so the warning must not say otherwise. A
     # message shared with the conversion paths would, since theirs opens by
-    # reporting an unread record.
-    assert "could not read" not in text
+    # reporting that no usable record was read.
+    assert "no usable" not in text
 
 
 def test_sidecar_skip_warning_stays_off_the_frontmatter(failed_probe):

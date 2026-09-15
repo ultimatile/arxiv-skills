@@ -1,9 +1,7 @@
 """The conftest network guard refuses and records a child's request.
 
 Every other test relies on the guard being silent, so a guard that stopped
-loading would leave them all green. This drives it directly. Its teardown check
-is a single emptiness test on the record file and is not run through a nested
-pytest session, since the suite does not enable the ``pytester`` plugin.
+loading would leave them all green. This drives it directly.
 """
 
 import subprocess

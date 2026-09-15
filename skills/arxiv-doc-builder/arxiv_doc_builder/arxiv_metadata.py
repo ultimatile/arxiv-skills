@@ -21,23 +21,24 @@ Design constraints:
   when the lookup failed. Unknown values render as YAML null (a bare
   ``key:``), which a parser reads as ``None``.
 - **A null is read together with ``metadata_status``.** Only under ``ok`` does a
-  null confirm an absence from DataCite's record. Under the other tokens the
-  record was never read, and the null reports ignorance. See
+  null confirm an absence from DataCite's record. Under the other tokens no
+  usable record was read, and the null reports ignorance. See
   ``references/output-format.md``.
-- **The lookup is bounded in wall time.** Metadata is secondary to the
-  Markdown, so ``fetch_metadata`` gives up after a fixed deadline and reports
+- **The wait for the lookup is bounded.** Metadata is secondary to the
+  Markdown, so ``fetch_metadata`` gives up after a deadline and reports
   ``unavailable`` rather than holding the conversion.
 
 Responsibility boundary: the DOI reported here is whatever DataCite's record
 carries (passive transcription). Resolving a DOI that record does not carry
-(e.g. via OpenAlex) belongs to the arxiv-lookup skill, not here.
+belongs to the arxiv-lookup skill, not here.
 """
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
+import html
 import json
-import math
 import re
 import threading
 import urllib.error
@@ -45,17 +46,18 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 # DataCite's REST endpoint for one DOI. arXiv registers every paper under the
 # 10.48550 prefix, and DataCite matches the suffix case-insensitively.
 _API_URL = "https://api.datacite.org/dois/10.48550/arxiv."
 
-# Upper bound, in seconds, on the whole metadata lookup.
+# Default upper bound, in seconds, on how long ``fetch_metadata`` waits for the
+# lookup.
 METADATA_DEADLINE_SECONDS = 5.0
 
-# The ``metadata_status`` frontmatter vocabulary. Anything that stops the record
-# from being read gives ``unavailable``, and the warning says what did.
+# The ``metadata_status`` frontmatter vocabulary. Anything that keeps a usable
+# record from being read gives ``unavailable``, and the warning says what did.
 METADATA_OK = "ok"
 METADATA_UNAVAILABLE = "unavailable"
 METADATA_NOT_REQUESTED = "not_requested"
@@ -69,11 +71,15 @@ _FETCH_STATUSES = (METADATA_OK, METADATA_UNAVAILABLE)
 # A validated arXiv id ends in ``v<N>`` exactly when it names a revision.
 _VERSION_SUFFIX = re.compile(r"v(\d+)$")
 
+# The leading calendar date of a DataCite date value. DataCite also carries
+# year-only and year-month values, which have none.
+_CALENDAR_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
 # DataCite writes an arXiv subject as "Human Name (code)".
 _SUBJECT_CODE = re.compile(r"\(([^()]+)\)\s*$")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ArxivMetadata:
     """The subset of a paper's metadata record that the frontmatter transcribes.
 
@@ -113,7 +119,7 @@ class MetadataFetch:
 
     @property
     def failure_cause(self) -> str:
-        """Why the record was not read. Defined only for a non-``ok`` outcome."""
+        """Why no usable record was read. Defined only for a non-``ok`` outcome."""
         if self.error is None:
             raise ValueError("an ok outcome has no failure cause")
         return self.error
@@ -141,6 +147,11 @@ class MetadataFetch:
 
 def _unavailable(cause: str) -> MetadataFetch:
     return MetadataFetch(METADATA_UNAVAILABLE, error=cause)
+
+
+def _cause(exc: BaseException) -> str:
+    """An exception as the cause text a failed outcome carries."""
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _is_yaml_printable(codepoint: int) -> bool:
@@ -177,6 +188,17 @@ def _normalize(text: Optional[str]) -> Optional[str]:
     printable = "".join(ch for ch in text if _is_yaml_printable(ord(ch)))
     collapsed = re.sub(r"\s+", " ", printable).strip()
     return collapsed or None
+
+
+def _prose(text: Optional[str]) -> Optional[str]:
+    """``_normalize`` for record prose, after decoding its HTML entities.
+
+    DataCite stores the title, author names and abstract with entities such as
+    ``&gt;`` left encoded.
+    """
+    if text is None:
+        return None
+    return _normalize(html.unescape(text))
 
 
 def _split_version(arxiv_id: str) -> tuple[str, Optional[int]]:
@@ -216,7 +238,7 @@ def _submitted_versions(attributes: dict[str, Any]) -> dict[int, str]:
         if entry.get("dateType") != "Submitted":
             continue
         label = _text(entry, "dateInformation") or ""
-        match = re.fullmatch(r"v(\d+)", label)
+        match = _VERSION_SUFFIX.fullmatch(label)
         date = _text(entry, "date")
         if match and date:
             versions[int(match.group(1))] = date
@@ -236,7 +258,7 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
         (
             text
             for text in (
-                _normalize(_text(entry, "title"))
+                _prose(_text(entry, "title"))
                 for entry in _dicts(attributes.get("titles"))
             )
             if text
@@ -252,7 +274,7 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
         # Organizational, and some Personal creators carry no givenName. In both
         # shapes ``name`` holds the author as arXiv lists it.
         name = f"{given} {family}" if given and family else _text(creator, "name")
-        normalized = _normalize(name)
+        normalized = _prose(name)
         if normalized:
             authors.append(normalized)
 
@@ -264,33 +286,34 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
     else:
         version = None
 
-    first_date = submitted.get(1)
-    published = first_date[:10] if first_date else None
+    first_date = _CALENDAR_DATE.match(submitted.get(1) or "")
+    published = first_date.group() if first_date else None
 
     categories: list[str] = []
     for subject in _dicts(attributes.get("subjects")):
         if subject.get("subjectScheme") != "arXiv":
             continue
         match = _SUBJECT_CODE.search(_text(subject, "subject") or "")
-        if match:
-            categories.append(match.group(1).strip())
+        code = _normalize(match.group(1)) if match else None
+        if code:
+            categories.append(code)
 
     dois = [
-        doi.strip()
+        doi
         for doi in (
-            _text(related, "relatedIdentifier")
+            _normalize(_text(related, "relatedIdentifier"))
             for related in _dicts(attributes.get("relatedIdentifiers"))
             if related.get("relationType") == "IsVersionOf"
             and related.get("relatedIdentifierType") == "DOI"
         )
-        if doi and doi.strip()
+        if doi
     ]
 
     abstract = next(
         (
             text
             for text in (
-                _normalize(_text(entry, "description"))
+                _prose(_text(entry, "description"))
                 for entry in _dicts(attributes.get("descriptions"))
                 if entry.get("descriptionType") == "Abstract"
             )
@@ -339,7 +362,7 @@ def _lookup(arxiv_id: str, timeout: float) -> MetadataFetch:
     except urllib.error.URLError as exc:
         return _unavailable(f"URLError: {exc.reason}")
     except OSError as exc:
-        return _unavailable(f"{type(exc).__name__}: {exc}")
+        return _unavailable(_cause(exc))
 
     try:
         document = json.loads(raw.decode("utf-8"))
@@ -355,7 +378,8 @@ def _lookup(arxiv_id: str, timeout: float) -> MetadataFetch:
     submitted = _submitted_versions(attributes)
     if requested is not None and submitted and requested > max(submitted):
         return _unavailable(
-            f"DataCite lists {max(submitted)} versions for {bare_id}, not {arxiv_id}"
+            f"{arxiv_id} is later than v{max(submitted)}, the latest revision "
+            f"DataCite lists for {bare_id}"
         )
     return MetadataFetch(METADATA_OK, metadata=_parse_record(arxiv_id, attributes))
 
@@ -365,23 +389,43 @@ def fetch_metadata(
 ) -> MetadataFetch:
     """Look up the metadata record for ``arxiv_id``, giving up after ``deadline``.
 
-    Every failure lands in the returned ``MetadataFetch.error`` instead of
-    propagating, letting callers fall back to a local title source (LaTeX
-    ``\\title``, PDF embedded metadata) and still report the cause.
+    Every failure of the lookup lands in the returned ``MetadataFetch.error``
+    instead of propagating — an unanticipated ``Exception`` in the request, a
+    worker thread that cannot start, and one that ends without a result
+    included — letting callers fall back to a local title source (LaTeX
+    ``\\title``, PDF embedded metadata) and still report the cause. A
+    ``deadline`` that is not a positive number of seconds at most
+    ``threading.TIMEOUT_MAX`` is a caller error: it raises ``ValueError``, or
+    ``TypeError`` when it is not an ``int`` or ``float`` (``bool`` excluded).
+    Both are raised before the lookup starts.
 
-    ``deadline`` bounds the wall time of the whole lookup. ``urlopen``'s own
-    ``timeout`` bounds each socket operation rather than the request, and a
-    response that trickles in can outlast it many times over, so the request
-    runs in a daemon thread that this call stops waiting for. The thread gets the
-    same socket timeout, so an abandoned request still ends on its own.
+    ``deadline`` bounds how long this call waits for the lookup. ``urlopen``'s own
+    ``timeout`` bounds each socket operation rather than the request, a response
+    that trickles in can outlast it many times over, and host resolution runs
+    outside it, so the request runs in a daemon thread that this call stops
+    waiting for. The thread passes the same value as the socket timeout, so a
+    request that stalls outright still ends on its own; one that keeps trickling
+    can outlive the call, and being a daemon keeps it from holding the process
+    open.
 
     Assumes ``arxiv_id`` is already validated to canonical form. An id that
     names a revision is looked up by its bare form, since DataCite holds one
     record per paper.
     """
-    if not (math.isfinite(deadline) and deadline > 0):
+    # Checked before the worker starts. Decimal and Fraction pass the range
+    # check below but make worker.join raise once the request is running.
+    if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
+        raise TypeError(
+            f"deadline must be an int or float, got {type(deadline).__name__}"
+        )
+    # threading.TIMEOUT_MAX is the largest value join and the socket timeout
+    # both accept; above it they raise OverflowError. The chained comparison
+    # also rejects NaN and infinity, and compares a huge int without
+    # converting it to float.
+    if not 0 < deadline <= threading.TIMEOUT_MAX:
         raise ValueError(
-            f"deadline must be a positive number of seconds, got {deadline!r}"
+            "deadline must be a positive number of seconds no greater than "
+            f"threading.TIMEOUT_MAX ({threading.TIMEOUT_MAX:g}), got {deadline!r}"
         )
 
     outcome: list[MetadataFetch] = []
@@ -390,14 +434,25 @@ def fetch_metadata(
         try:
             outcome.append(_lookup(arxiv_id, deadline))
         except Exception as exc:
-            outcome.append(_unavailable(f"{type(exc).__name__}: {exc}"))
+            outcome.append(_unavailable(_cause(exc)))
 
-    worker = threading.Thread(target=run, name="arxiv-metadata-lookup", daemon=True)
-    worker.start()
+    try:
+        worker = threading.Thread(target=run, name="arxiv-metadata-lookup", daemon=True)
+        worker.start()
+    except Exception as exc:
+        return _unavailable(_cause(exc))
     worker.join(deadline)
-    if not outcome:
+    # Read the thread's state before the outcome. A result the worker appends
+    # after the join timed out but before this read is still returned below,
+    # since the outcome is checked first.
+    finished = not worker.is_alive()
+    if outcome:
+        return outcome[0]
+    if not finished:
         return _unavailable(f"metadata lookup exceeded the {deadline:g} s budget")
-    return outcome[0]
+    # The worker ended without appending, which means an exception escaped
+    # run(): a BaseException, or an exception raised inside its handler.
+    return _unavailable("metadata lookup ended without a result")
 
 
 _HANDOFF_SCALARS = (
@@ -418,7 +473,9 @@ def write_metadata_handoff(path: Path, arxiv_id: str, fetch: MetadataFetch) -> N
     it starts, so a failed lookup crosses the process boundary with its cause.
     """
     payload = {"arxiv_id": arxiv_id, "fetch": dataclasses.asdict(fetch)}
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    # ASCII-only JSON: a lone surrogate from an external record then travels as
+    # a \u escape instead of failing the UTF-8 write.
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _handoff_metadata(value: object) -> Optional[ArxivMetadata]:
@@ -465,7 +522,7 @@ def _read_handoff(path: Path, arxiv_id: str) -> MetadataFetch:
 
 
 def read_metadata_handoff(path: Path, arxiv_id: str) -> MetadataFetch:
-    """Read back what ``write_metadata_handoff`` wrote, never raising.
+    """Read back what ``write_metadata_handoff`` wrote, raising no ``Exception``.
 
     A handoff that cannot be trusted — missing or unreadable, not the JSON shape
     the writer produces, a field of the wrong type, an outcome
@@ -475,11 +532,40 @@ def read_metadata_handoff(path: Path, arxiv_id: str) -> MetadataFetch:
     try:
         return _read_handoff(Path(path), arxiv_id)
     except Exception as exc:
-        return _unavailable(f"metadata handoff unreadable: {type(exc).__name__}: {exc}")
+        return _unavailable(f"metadata handoff unreadable: {_cause(exc)}")
+
+
+def add_metadata_handoff_option(parser: argparse.ArgumentParser) -> None:
+    """Add the hidden ``--metadata-handoff`` option a step started by ``convert_paper`` takes.
+
+    The option carries ``convert_paper``'s lookup to its steps and is no setting
+    for a user, so ``--help`` leaves it out. ``Path`` cannot reject a
+    command-line string, so no value argparse hands to it makes argparse exit 2,
+    the code ``convert_paper`` reserves for an ambiguous main ``.tex``. The
+    option still exits 2 when nothing follows it, or when what follows starts
+    with ``-`` and argparse reads it as another option. ``convert_paper``
+    produces neither, since it always passes an absolute path.
+    """
+    parser.add_argument("--metadata-handoff", type=Path, help=argparse.SUPPRESS)
+
+
+def resolve_metadata(
+    arxiv_id: str,
+    handoff: Optional[Path],
+    lookup: Callable[[str], MetadataFetch],
+) -> MetadataFetch:
+    """The outcome handed over in ``handoff``, or a fresh ``lookup`` without one.
+
+    ``lookup`` is the calling module's own lookup function, passed in so a test
+    that replaces that module's name still intercepts it.
+    """
+    if handoff is not None:
+        return read_metadata_handoff(handoff, arxiv_id)
+    return lookup(arxiv_id)
 
 
 def format_unavailable_warning(arxiv_id: str, *, cause: str) -> str:
-    """Compose the warning a conversion path shows when the record was unread.
+    """Compose the warning a conversion path shows when no usable record was read.
 
     Both conversion paths write null record fields into a document and say the
     same thing about them, so the whole message lives here. A step that writes
@@ -489,7 +575,7 @@ def format_unavailable_warning(arxiv_id: str, *, cause: str) -> str:
     instead of printing it leaves the destination to the caller.
     """
     return (
-        f"WARNING: could not read DataCite's record for {arxiv_id}: {cause}\n"
+        f"WARNING: no usable DataCite record for {arxiv_id}: {cause}\n"
         "  The frontmatter fields that record supplies are left null. Those "
         "nulls mean the value is unknown, not that the record has none.\n"
         "  The document's frontmatter records "

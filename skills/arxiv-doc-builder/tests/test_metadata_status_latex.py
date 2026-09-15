@@ -9,6 +9,9 @@ dependencies. Each test replaces the caller's ``fetch_metadata`` or hands it a
 lookup, so nothing here reaches the network.
 """
 
+import subprocess
+import sys
+
 from conftest import PROBE_ERROR, refuse_lookup, status_of
 
 from arxiv_doc_builder import convert_latex
@@ -78,3 +81,43 @@ def test_latex_path_given_a_handoff_uses_it_without_looking_up(
     # A handed-over failure still reaches the user with its cause.
     err = capsys.readouterr().err
     assert (PROBE_ERROR in err) == (status == METADATA_UNAVAILABLE)
+
+
+def test_latex_main_hands_its_handoff_path_to_post_processing(monkeypatch, tmp_path):
+    # Observed without pandoc: conversion and figure copying are replaced, so
+    # the only thing left to check is what main() passes on.
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+    handoff = tmp_path / "handoff.json"
+    received = {}
+
+    def record(md_file, arxiv_id, tex_file, **kwargs):
+        received.update(kwargs, arxiv_id=arxiv_id)
+
+    monkeypatch.setattr(
+        convert_latex.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(convert_latex, "convert_with_pandoc", lambda tex, out: True)
+    monkeypatch.setattr(convert_latex, "post_process_markdown", record)
+    monkeypatch.setattr(convert_latex, "copy_figures", lambda *args: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "convert_latex.py",
+            "2606.09995",
+            "--source-dir",
+            str(source),
+            "--output",
+            str(tmp_path / "out.md"),
+            "--metadata-handoff",
+            str(handoff),
+        ],
+    )
+
+    convert_latex.main()
+
+    assert received == {"arxiv_id": "2606.09995", "metadata_handoff": handoff}

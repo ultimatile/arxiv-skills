@@ -44,8 +44,8 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(
         "\\documentclass{article}\n\\begin{document}\nhi\n\\end{document}\n",
         encoding="utf-8",
     )
-    # Seed a non-empty PDF so the idempotent fetch_pdf() skips the
-    # network (existence-based: non-empty file → cache hit).
+    # Seed a non-empty PDF so fetch_pdf() reuses it without a network request.
+    # It does so only while the drift record below matches the lookup's version.
     pdf_dir = paper_dir / "pdf"
     pdf_dir.mkdir(parents=True, exist_ok=True)
     (pdf_dir / f"{arxiv_id}.pdf").write_bytes(b"%PDF-stub")

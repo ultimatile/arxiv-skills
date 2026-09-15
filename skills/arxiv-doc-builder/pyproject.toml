@@ -37,6 +37,6 @@ testpaths = ["tests"]
 # pdf_image_lib.py) is now importable: the heavy third-party imports it depends
 # on — pdfplumber / pdf2image / pypdf / pillow — resolve via the `pdf` extra that
 # the dev group pulls in, so pyright no longer reports them as unresolved. The
-# two refactored shims import only their sibling lib plus stdlib; the heavy
+# two refactored shims import only sibling modules plus stdlib; the heavy
 # imports live in the libs (and the pdfplumber-tier scripts).
 include = ["arxiv_doc_builder", "tests"]
