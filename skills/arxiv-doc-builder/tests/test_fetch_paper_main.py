@@ -68,6 +68,32 @@ def test_the_downloads_name_the_revision_the_sidecar_records(
     assert ids == [downloaded, downloaded]
 
 
+def test_a_record_of_a_later_revision_is_kept_while_the_lookup_lags(
+    monkeypatch, tmp_path, probe_with_version
+):
+    # The lookup reports PROBE_VERSION while the sidecar already records a later
+    # revision. Refreshing would delete the cached source, edits included, and
+    # record the older revision over newer material.
+    paper_dir = tmp_path / "2409.03108"
+    paper_dir.mkdir()
+    later = PROBE_VERSION.rsplit("v", 1)[0] + "v99"
+    fetch_paper._write_cached_version(paper_dir, later)
+    calls: list[tuple[str, bool]] = []
+
+    def record(arxiv_id, *_args, refresh, **_kwargs):
+        calls.append((arxiv_id, refresh))
+        return True
+
+    argv = ["fetch_paper.py", "2409.03108", "--output-dir", str(tmp_path)]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(fetch_paper, "_probe_metadata", lambda _id: probe_with_version)
+    monkeypatch.setattr(fetch_paper, "fetch_source", record)
+    monkeypatch.setattr(fetch_paper, "fetch_pdf", record)
+    fetch_paper.main()
+    assert calls == [(later, False), (later, False)]
+    assert fetch_paper._read_cached_version(paper_dir) == later
+
+
 def test_material_without_a_version_warns_and_writes_no_sidecar(
     run_main, capsys, failed_probe
 ):

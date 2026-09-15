@@ -16,6 +16,7 @@ from arxiv_doc_builder.fetch_paper import (
     _needs_refresh,
     _read_cached_version,
     _record_version,
+    _target_version,
     _write_cached_version,
     _METADATA_FILE,
 )
@@ -80,6 +81,44 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
     assert _needs_refresh(tmp_path, "2409.03108v1") is True
     assert _record_version(tmp_path, "2409.03108v1", fetched=True) is True
     assert _needs_refresh(tmp_path, "2409.03108v1") is False
+
+
+@pytest.mark.parametrize(
+    ("cached", "latest", "pinned", "target"),
+    [
+        (None, "2409.03108v2", False, "2409.03108v2"),
+        ("2409.03108v1", "2409.03108v2", False, "2409.03108v2"),
+        ("2409.03108v2", "2409.03108v2", False, "2409.03108v2"),
+        # DataCite can lag arXiv, and an earlier run may already hold the later
+        # revision. Going back would delete the source only to fetch it again.
+        ("2409.03108v3", "2409.03108v2", False, "2409.03108v3"),
+        ("2409.03108v10", "2409.03108v9", False, "2409.03108v10"),
+        # A requested revision is what the user asked for, whatever is cached.
+        ("2409.03108v3", "2409.03108v2", True, "2409.03108v2"),
+        # A record of another paper, or of a different spelling of the id, says
+        # nothing about this lookup's revision.
+        ("2409.03109v3", "2409.03108v2", False, "2409.03108v2"),
+        ("math/0309136v3", "math.GT/0309136v2", False, "math.GT/0309136v2"),
+        ("2409.03108v3", None, False, None),
+    ],
+    ids=[
+        "no-record",
+        "record-older",
+        "record-equal",
+        "record-newer",
+        "record-newer-numerically",
+        "pinned-overrides-newer-record",
+        "record-of-another-paper",
+        "record-of-another-spelling",
+        "no-version-from-lookup",
+    ],
+)
+def test_target_version_keeps_a_later_recorded_revision_of_an_unpinned_id(
+    tmp_path, cached, latest, pinned, target
+):
+    if cached is not None:
+        _write_cached_version(tmp_path, cached)
+    assert _target_version(tmp_path, latest, pinned=pinned) == target
 
 
 # --- what the lookup yields, and when the sidecar advances ------------------

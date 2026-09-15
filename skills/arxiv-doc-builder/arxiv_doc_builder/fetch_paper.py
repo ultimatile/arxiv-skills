@@ -7,6 +7,7 @@ Tries to fetch LaTeX source first, falls back to PDF if unavailable.
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,9 @@ except ModuleNotFoundError as _exc:
 
 _METADATA_FILE = ".arxiv-fetch.json"
 
+# A versioned arXiv id: the bare id, then ``v<N>``.
+_REVISION = re.compile(r"(.+)v(\d+)")
+
 
 def _probe_metadata(arxiv_id: str) -> MetadataFetch:
     """Look up the record the drift check reads.
@@ -68,6 +72,32 @@ def _latest_version(probe: MetadataFetch) -> Optional[str]:
     lookup", whether the lookup failed or the record carried no version.
     """
     return probe.metadata.version if probe.metadata else None
+
+
+def _target_version(
+    paper_dir: Path, latest: Optional[str], *, pinned: bool
+) -> Optional[str]:
+    """The revision this run should have on disk and record.
+
+    Normally ``latest``, the lookup's version. For an id given without a
+    revision (``pinned`` false), a sidecar recording a later revision of the
+    same id wins instead. DataCite can lag arXiv, and an earlier run may
+    already hold the later revision, so going back to ``latest`` would delete
+    the cached source only to fetch the later one again once DataCite catches
+    up. A requested revision always wins, and ``None`` stays ``None``.
+    """
+    if pinned or latest is None:
+        return latest
+    cached = _REVISION.fullmatch(_read_cached_version(paper_dir) or "")
+    looked_up = _REVISION.fullmatch(latest)
+    if (
+        cached
+        and looked_up
+        and cached.group(1) == looked_up.group(1)
+        and int(cached.group(2)) > int(looked_up.group(2))
+    ):
+        return cached.group(0)
+    return latest
 
 
 def _read_cached_version(paper_dir: Path) -> Optional[str]:
@@ -390,7 +420,11 @@ def main():
 
     # Check for version drift before fetching
     probe = resolve_metadata(args.arxiv_id, args.metadata_handoff, _probe_metadata)
-    latest = _latest_version(probe)
+    latest = _target_version(
+        paper_dir,
+        _latest_version(probe),
+        pinned=_REVISION.fullmatch(args.arxiv_id) is not None,
+    )
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:
         cached = _read_cached_version(paper_dir)
