@@ -402,14 +402,19 @@ def main():
             print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
+    # Download the revision the record names, so the version the sidecar records
+    # is the one on disk even while DataCite has yet to list a revision arXiv
+    # already serves. With no version, arXiv's latest is downloaded and nothing
+    # is recorded.
+    download_id = latest or args.arxiv_id
     has_source = fetch_source(
-        args.arxiv_id,
+        download_id,
         paper_dir,
         normalized_arxiv_id,
         refresh=refresh,
     )
     has_pdf = fetch_pdf(
-        args.arxiv_id,
+        download_id,
         paper_dir,
         normalized_arxiv_id,
         refresh=refresh,

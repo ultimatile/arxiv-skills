@@ -71,6 +71,11 @@ _FETCH_STATUSES = (METADATA_OK, METADATA_UNAVAILABLE)
 # A validated arXiv id ends in ``v<N>`` exactly when it names a revision.
 _VERSION_SUFFIX = re.compile(r"v(\d+)$")
 
+# A legacy id may name a subject class ("math.GT/0309136"). arXiv registers the
+# paper's DOI under the archive alone ("math/0309136"), and DataCite answers 404
+# for the subject-class form.
+_SUBJECT_CLASS = re.compile(r"^([a-z]+(?:-[a-z]+)?)\.[A-Za-z]+(?:-[A-Za-z]+)*/")
+
 # The leading calendar date of a DataCite date value. DataCite also carries
 # year-only and year-month values, which have none.
 _CALENDAR_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -352,13 +357,14 @@ def _lookup(arxiv_id: str, timeout: float) -> MetadataFetch:
     into ``unavailable`` too.
     """
     bare_id, requested = _split_version(arxiv_id)
-    url = _API_URL + urllib.parse.quote(bare_id, safe="/")
+    doi_id = _SUBJECT_CLASS.sub(r"\1/", bare_id)
+    url = _API_URL + urllib.parse.quote(doi_id, safe="/")
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
         # HTTPError subclasses URLError, so it must be caught first.
-        return _unavailable(_http_cause(exc.code, bare_id))
+        return _unavailable(_http_cause(exc.code, doi_id))
     except urllib.error.URLError as exc:
         return _unavailable(f"URLError: {exc.reason}")
     except OSError as exc:
@@ -410,7 +416,8 @@ def fetch_metadata(
 
     Assumes ``arxiv_id`` is already validated to canonical form. An id that
     names a revision is looked up by its bare form, since DataCite holds one
-    record per paper.
+    record per paper, and a legacy id that names a subject class is looked up
+    by its archive alone, the form arXiv registers the DOI under.
     """
     # Checked before the worker starts. Decimal and Fraction pass the range
     # check below but make worker.join raise once the request is running.

@@ -42,6 +42,32 @@ def run_main(monkeypatch, tmp_path):
     return run
 
 
+@pytest.mark.parametrize(
+    ("probe_name", "downloaded"),
+    [("probe_with_version", PROBE_VERSION), ("failed_probe", "2409.03108")],
+)
+def test_the_downloads_name_the_revision_the_sidecar_records(
+    monkeypatch, tmp_path, request, probe_name, downloaded
+):
+    # While DataCite has yet to list a revision arXiv already serves, an
+    # unversioned download would put that newer revision on disk under the
+    # older version the sidecar records.
+    probe = request.getfixturevalue(probe_name)
+    ids: list[str] = []
+
+    def record(arxiv_id, *_args, **_kwargs):
+        ids.append(arxiv_id)
+        return True
+
+    argv = ["fetch_paper.py", "2409.03108", "--output-dir", str(tmp_path)]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(fetch_paper, "_probe_metadata", lambda _id: probe)
+    monkeypatch.setattr(fetch_paper, "fetch_source", record)
+    monkeypatch.setattr(fetch_paper, "fetch_pdf", record)
+    fetch_paper.main()
+    assert ids == [downloaded, downloaded]
+
+
 def test_material_without_a_version_warns_and_writes_no_sidecar(
     run_main, capsys, failed_probe
 ):

@@ -403,6 +403,27 @@ def test_a_requested_revision_is_recorded_and_looked_up_by_the_bare_id(
     assert result.metadata.version == f"2409.03108v{revision}"
 
 
+@pytest.mark.parametrize(
+    ("arxiv_id", "doi_id"),
+    [
+        ("math.GT/0309136", "math/0309136"),
+        ("cond-mat.str-el/0601234v2", "cond-mat/0601234"),
+        ("hep-th/9711200", "hep-th/9711200"),
+    ],
+)
+def test_a_legacy_subject_class_is_left_out_of_the_doi_looked_up(
+    transport, arxiv_id, doi_id
+):
+    # DataCite answers 404 for 10.48550/arXiv.math.GT/0309136 and 200 for
+    # 10.48550/arXiv.math/0309136.
+    requested = transport(_http_error(404))
+    result = fetch_metadata(arxiv_id)
+    assert requested == [arxiv_metadata._API_URL + doi_id]
+    assert result.error == (
+        f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
+    )
+
+
 def test_a_requested_revision_with_no_listed_revisions_is_ok(transport):
     # With no Submitted dates there is no latest revision to compare against, so
     # the requested one is not rejected.
