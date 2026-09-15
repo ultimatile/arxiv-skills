@@ -10,7 +10,7 @@ LaTeX source provides better structure and accuracy.
 ARXIV_ID="2409.03108"
 
 # Try to fetch source
-curl -L -o /tmp/${ARXIV_ID}-src.tar.gz https://arxiv.org/src/${ARXIV_ID}
+curl -L -o /tmp/${ARXIV_ID}-src.tar.gz https://export.arxiv.org/src/${ARXIV_ID}
 
 # Check if successful (source available)
 if [ $? -eq 0 ]; then
@@ -33,7 +33,7 @@ ARXIV_ID="2409.03108"
 curl -L -o /tmp/${ARXIV_ID}.pdf https://arxiv.org/pdf/${ARXIV_ID}.pdf
 
 # Fetch source (if available)
-curl -L -o /tmp/${ARXIV_ID}-src.tar.gz https://arxiv.org/src/${ARXIV_ID}
+curl -L -o /tmp/${ARXIV_ID}-src.tar.gz https://export.arxiv.org/src/${ARXIV_ID}
 if [ $? -eq 0 ]; then
     mkdir -p /tmp/${ARXIV_ID}-src
     tar -xzf /tmp/${ARXIV_ID}-src.tar.gz -C /tmp/${ARXIV_ID}-src
@@ -43,7 +43,7 @@ fi
 ## arXiv URL Patterns
 
 - **PDF**: `https://arxiv.org/pdf/{ARXIV_ID}.pdf`
-- **Source**: `https://arxiv.org/src/{ARXIV_ID}` (returns tar.gz)
+- **Source**: `https://export.arxiv.org/src/{ARXIV_ID}` (returns tar.gz)
 - **Abstract**: `https://arxiv.org/abs/{ARXIV_ID}`
 
 ## Source File Structure
