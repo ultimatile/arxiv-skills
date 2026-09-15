@@ -67,7 +67,11 @@ Field notes:
   `hep-th/9901001v3`). For an id given without a version it names the latest
   revision the record lists. For an id given with one it names that revision,
   while every other record-derived field still describes the record, which
-  follows the latest revision.
+  follows the latest revision. DataCite lists a new revision a few hours after
+  arXiv announces it. When `.arxiv-fetch.json` already records a later
+  revision of an id given without a version, the fetch step keeps and converts
+  that revision, and `version` still names the record's older one. The
+  revision on disk is the one `.arxiv-fetch.json` records.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
 - `doi` holds the DOIs the record lists as versions of the paper, separated by
