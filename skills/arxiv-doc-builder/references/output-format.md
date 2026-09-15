@@ -18,14 +18,15 @@ paths (LaTeX and PDF). The schema is **total**: every key is always present.
 A value that is not known renders as YAML null (a bare `key:`), which a parser
 reads as `None` and not as a missing key.
 
-What a null means depends on `metadata_status`, which records whether the arXiv
-record behind the arXiv-derived fields was read:
+What a null means depends on `metadata_status`, which records whether the
+metadata record behind the record-derived fields was read. That record is the
+one arXiv registers at DataCite for the paper's DOI, `10.48550/arXiv.<id>`:
 
-- `ok`. The record was read, and a null field is a **confirmed absence**. arXiv
-  holds this paper's record and reports no value there, which supports a
-  "preprint, no journal DOI" reading.
-- `unavailable`. The request failed, arXiv returned no record for the id, or
-  arXiv rejected the id. No record reached the converter, which leaves a null
+- `ok`. The record was read, and a null field is a **confirmed absence**. The
+  record exists and reports no value there, which supports a "preprint, no
+  journal DOI" reading.
+- `unavailable`. The lookup failed or did not finish in time, or DataCite has
+  no record for the id. No record reached the converter, which leaves a null
   field **unknown** instead of a confirmed absence. The conversion names the
   cause on stderr as it runs.
 - `not_requested`. The conversion ran with no arXiv id, and the record was
@@ -47,7 +48,6 @@ categories:
   - "cs.AI"
   - "cs.CL"
 doi: "10.1145/1234567.1234568"   # or bare `doi:` (null); see metadata_status
-journal: "Proc. ACM, 2024"       # or bare `journal:` (null)
 source_type: "latex"             # or "pdf"
 metadata_status: "ok"            # or "unavailable" / "not_requested"
 conversion_date: "2025-12-08T10:00:00+00:00"
@@ -59,18 +59,23 @@ abstract: |-
 Field notes:
 
 - `version` is the full versioned arXiv id (e.g. `2409.03108v2`, legacy
-  `hep-th/9901001v3`), recording which revision was read.
+  `hep-th/9901001v3`). For an id given without a version it names the latest
+  revision the record lists. For an id given with one it names that revision,
+  while `title`, `authors`, and `abstract` still describe the record, which
+  follows the latest revision.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
-- `doi` / `journal` are whatever arXiv's own record carries. Resolving a DOI
-  that arXiv does not carry (e.g. via OpenAlex) is the arxiv-lookup skill's job,
-  not this converter's.
-- Two fields survive on local sources when no arXiv record backs the document.
+- `doi` holds the DOIs the record lists as versions of the paper, separated by
+  spaces and spelled as the record stores them, which is lowercase. Resolving a
+  DOI that the record does not carry (e.g. via OpenAlex) is the arxiv-lookup
+  skill's job, not this converter's.
+- `primary_category` is the first code in `categories`.
+- Two fields survive on local sources when no record backs the document.
   `title` comes from the LaTeX `\title` or the PDF's embedded title on either
   path, and `authors` from the PDF's embedded author on the PDF path, staying
-  null on the LaTeX path. Every other arXiv-sourced field renders as null.
-  A populated `title` or `authors` is therefore no evidence that arXiv was
-  reached, and `metadata_status` is what answers that.
+  null on the LaTeX path. Every other record-sourced field renders as null.
+  A populated `title` or `authors` is therefore no evidence that the record was
+  read, and `metadata_status` is what answers that.
 
 ## Body Structure
 
@@ -230,6 +235,6 @@ detection (`{"version": "2409.03108v2"}`); it is not the metadata surface a
 consumer reads.
 
 The sidecar records a version only when the fetch obtained material and the
-arXiv record supplied one. A run that obtained material without a version
+metadata record supplied one. A run that obtained material without a version
 writes nothing to it, leaving any earlier value in place, and says so on
 stderr. A run that obtained no material at all exits non-zero.

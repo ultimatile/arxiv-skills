@@ -60,12 +60,13 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
   from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
 
 The orchestrator:
-1. Calls `fetch_paper.py` to download available materials — source if available + PDF (idempotent — cached files are reused)
-2. Detects available format (LaTeX source or PDF)
-3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
-4. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
+1. Looks up the paper's metadata record once, with a time limit, and hands the result to the steps below; a failed lookup is recorded as `metadata_status: unavailable` and does not stop the conversion
+2. Calls `fetch_paper.py` to download available materials — source if available + PDF (idempotent — cached files are reused)
+3. Detects available format (LaTeX source or PDF)
+4. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
+5. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
 
-All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
+The metadata lookup, downloads (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
 
 ### Source Detection
 
@@ -168,7 +169,7 @@ Main .tex selection is ambiguous. Re-run with --tex-file pointing at the correct
 If you originally passed --output-dir, include the same value in the re-run.
 ```
 
-To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file. The fetch step is idempotent, so the already-downloaded source is reused without touching the network:
+To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file. The fetch step is idempotent, so the already-downloaded source is reused rather than downloaded again:
 
 ```bash
 convert-paper 1911.04882 --tex-file /path/to/1911.04882/source/main_paper.tex
@@ -184,7 +185,7 @@ When pandoc fails on a LaTeX source, the error may point to `\end{document}` wit
 
 1. **Binary search for the failing line.** Extract the body (`\begin{document}` to `\end{document}`), then test pandoc with increasing prefixes to find the first line that causes failure.
 2. **Check that line for brace mismatches.** The most common cause is an unbalanced `{` or `}` in the LaTeX source. LaTeX's TeX engine silently tolerates these, but pandoc's structured parser does not.
-3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. The fetch step is idempotent, so the cached source and PDF are reused without network access.
+3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. The fetch step is idempotent, so the cached source and PDF are reused rather than downloaded again.
 
 ### Example
 

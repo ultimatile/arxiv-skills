@@ -1,22 +1,35 @@
-"""Contract tests for the frontmatter producer.
+"""Contract tests for the metadata lookup and the frontmatter producer.
 
 The frontmatter is the provenance surface a downstream consumer reads, so the
 schema must be total (every key always present) and the emitted text must be
 valid, re-parseable YAML, including the absence-confirmation contract where a
-missing arXiv value renders as YAML null instead of an absent key. That null
-confirms an absence only under ``metadata_status: ok``. Under the other tokens
-the record was never read and the same null reports ignorance, which is why the
-tests below pin the status alongside the fields it qualifies.
+value missing from the record renders as YAML null instead of an absent key.
+That null confirms an absence only under ``metadata_status: ok``. Under the
+other tokens the record was never read and the same null reports ignorance,
+which is why the tests below pin the status alongside the fields it qualifies.
 
 The round-trip assertions use PyYAML (a test-only dependency) as an independent
 oracle; ``importorskip`` keeps the suite green in a bare environment without it,
 while the structural assertions below pin the contract with no dependency.
+
+The lookup tests replace the HTTP transport and read DataCite responses from
+``fixtures/datacite``, trimmed from real responses to the fields the mapping
+reads, so nothing here reaches the network.
 """
 
+import io
+import math
+import subprocess
+import sys
+import textwrap
+import time
+import urllib.error
+from pathlib import Path
 from typing import Optional
 
 import pytest
 
+import arxiv_doc_builder.arxiv_metadata as arxiv_metadata
 from arxiv_doc_builder.arxiv_metadata import (
     METADATA_NOT_REQUESTED,
     METADATA_OK,
@@ -27,7 +40,8 @@ from arxiv_doc_builder.arxiv_metadata import (
     build_frontmatter,
     fetch_metadata,
     format_unavailable_warning,
-    parse_version_from_id,
+    read_metadata_handoff,
+    write_metadata_handoff,
 )
 
 # The total key set every frontmatter must carry, in any state.
@@ -40,12 +54,13 @@ FRONTMATTER_KEYS = {
     "primary_category",
     "categories",
     "doi",
-    "journal",
     "source_type",
     "metadata_status",
     "conversion_date",
     "abstract",
 }
+
+_FIXTURES = Path(__file__).parent / "fixtures" / "datacite"
 
 _FULL = ArxivMetadata(
     title="A Study of Things",
@@ -55,7 +70,6 @@ _FULL = ArxivMetadata(
     primary_category="quant-ph",
     categories=["quant-ph", "cond-mat.str-el"],
     doi="10.1103/PhysRevD.76.013009",
-    journal="Phys.Rev.D76:013009,2007",
     abstract="Line one.\n  wrapped   with   odd spacing\nand a colon: here.",
 )
 
@@ -75,11 +89,14 @@ def _fm(meta: Optional[ArxivMetadata] = None, **kwargs) -> str:
 
 def _parse(frontmatter: str):
     """Parse the inner YAML of a ``---``-fenced frontmatter block via PyYAML."""
-    import pytest
-
     yaml = pytest.importorskip("yaml")
     inner = frontmatter.split("---\n", 1)[1].rsplit("\n---", 1)[0]
     return yaml.safe_load(inner)
+
+
+def _record(arxiv_id: str) -> bytes:
+    """The stored DataCite response for ``arxiv_id``."""
+    return (_FIXTURES / (arxiv_id.replace("/", "_") + ".json")).read_bytes()
 
 
 # --- structural contract (no third-party dependency) ----------------------
@@ -93,15 +110,23 @@ def test_all_keys_present_in_full_metadata():
     assert "\n---\n" in fm
 
 
-def test_absent_doi_journal_render_as_bare_null_keys():
-    # The absence-confirmation contract: an arXiv record with no DOI must emit
-    # `doi:` (null), distinct from omitting the key. A bare `key:` line, not
+def test_absent_doi_renders_as_bare_null_key():
+    # The absence-confirmation contract: a record with no DOI must emit `doi:`
+    # (null), distinct from omitting the key. A bare `key:` line, not
     # `key: ""`, is what a parser reads as None.
-    meta = ArxivMetadata(title="T", doi=None, journal=None)
+    meta = ArxivMetadata(title="T", doi=None)
     fm = _fm(meta)
     assert "\ndoi:\n" in fm
-    assert "\njournal:\n" in fm
     assert 'doi: ""' not in fm
+
+
+def test_the_journal_key_is_not_part_of_the_schema():
+    # DataCite's record carries no journal-reference string, so a `journal`
+    # key could only ever be null and would read as a confirmed absence.
+    assert "journal" not in _fm(_FULL)
+    assert "journal" not in {
+        f.name for f in arxiv_metadata.dataclasses.fields(ArxivMetadata)
+    }
 
 
 def test_absent_arxiv_id_renders_as_null():
@@ -135,17 +160,15 @@ def test_full_metadata_round_trips():
     assert parsed["primary_category"] == "quant-ph"
     assert parsed["categories"] == ["quant-ph", "cond-mat.str-el"]
     assert parsed["doi"] == "10.1103/PhysRevD.76.013009"
-    assert parsed["journal"] == "Phys.Rev.D76:013009,2007"
     assert parsed["source_type"] == "latex"
     # Abstract is whitespace-normalized to a single paragraph.
     assert parsed["abstract"] == "Line one. wrapped with odd spacing and a colon: here."
 
 
 def test_absent_fields_parse_to_none():
-    meta = ArxivMetadata(title="T", doi=None, journal=None, abstract=None)
+    meta = ArxivMetadata(title="T", doi=None, abstract=None)
     parsed = _parse(_fm(meta))
     assert "doi" in parsed and parsed["doi"] is None
-    assert "journal" in parsed and parsed["journal"] is None
     assert "abstract" in parsed and parsed["abstract"] is None
     assert parsed["categories"] == []
     assert parsed["authors"] is None
@@ -190,9 +213,9 @@ def test_tricky_title_round_trips():
 
 def test_pdf_style_raw_author_with_newline_stays_valid_yaml():
     # The PDF fallback path builds ArxivMetadata from raw embedded metadata,
-    # which bypasses the Atom-side normalization. An author carrying an embedded
-    # newline (common in malformed PDF /Author fields) must not corrupt the
-    # YAML; build_frontmatter normalizes it to a single line.
+    # which bypasses the record-side normalization. An author carrying an
+    # embedded newline (common in malformed PDF /Author fields) must not corrupt
+    # the YAML; build_frontmatter normalizes it to a single line.
     meta = ArxivMetadata(title="T", authors=["Jane Doe\n--- affiliation"])
     parsed = _parse(_fm(meta, arxiv_id="x", source_type="pdf"))
     assert parsed["authors"] == "Jane Doe --- affiliation"
@@ -203,8 +226,9 @@ def test_non_printable_characters_are_stripped_and_yaml_stays_valid():
     # metadata, and the abstract's literal block scalar cannot escape them, so
     # normalization drops them outright. The frontmatter must stay parseable on
     # both the quoted-scalar (title, authors) and block-scalar (abstract) paths.
-    # Reachable inputs: XML 1.0 permits raw C1 controls in an arXiv summary, and
-    # pypdf metadata can yield U+FFFF via a strict UTF-16BE decode of \xff\xff.
+    # Reachable inputs: a JSON string can carry a raw C1 control through a \u
+    # escape, and pypdf metadata can yield U+FFFF via a strict UTF-16BE decode
+    # of \xff\xff.
     controls = "".join(chr(c) for c in (0x07, 0x1B, 0x80, 0x9F, 0x7F, 0xFFFE, 0xFFFF))
     meta = ArxivMetadata(
         title="A" + controls + "B",
@@ -217,111 +241,506 @@ def test_non_printable_characters_are_stripped_and_yaml_stays_valid():
     assert parsed["abstract"] == "CleanAbstract"
 
 
-# --- version parsing ------------------------------------------------------
-
-
-def test_parse_version_canonical_full_tail():
-    assert parse_version_from_id("http://arxiv.org/abs/2409.03108v2") == "2409.03108v2"
-
-
-def test_parse_version_legacy_full_tail():
-    # Legacy ids keep their slash and the version suffix; the sidecar stores
-    # exactly this form, so the parser must not strip either.
-    assert (
-        parse_version_from_id("http://arxiv.org/abs/hep-th/9901001v3")
-        == "hep-th/9901001v3"
-    )
-
-
-def test_parse_version_empty_and_none():
-    assert parse_version_from_id("") is None
-    assert parse_version_from_id(None) is None
-
-
-# --- fetch outcome: status, cause, and what each one licenses ---------------
-
-_ATOM_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom"
-      xmlns:arxiv="http://arxiv.org/schemas/atom">
-  <entry>
-    <id>http://arxiv.org/abs/2606.09995v1</id>
-    <title>A Study of Things</title>
-    <published>2026-06-08T00:00:00Z</published>
-    <summary>An abstract.</summary>
-    <author><name>Chiara Capecci</name></author>
-    <arxiv:primary_category term="quant-ph"/>
-    <category term="quant-ph"/>
-    <arxiv:doi>10.1103/PhysRevD.76.013009</arxiv:doi>
-  </entry>
-</feed>
-"""
-
-_ATOM_NO_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom"></feed>
-"""
+# --- lookup: the transport and DataCite's records ---------------------------
 
 
 @pytest.fixture
 def transport(monkeypatch):
-    """Replace the HTTP transport so no test reaches arXiv.
+    """Replace the HTTP transport so no test reaches DataCite.
 
-    Yields a setter taking either bytes (the body ``fetch_metadata`` will
-    parse) or an exception instance (raised in place of the request).
+    ``install`` takes the outcome of the request: bytes (the body
+    ``fetch_metadata`` will parse), an exception instance (raised in place of
+    the request), or a callable returning a response. It returns the list the
+    requested URLs are appended to.
     """
-    import io
-
-    import arxiv_doc_builder.arxiv_metadata as m
+    requested: list[str] = []
 
     def install(outcome):
         def fake_urlopen(url, timeout=None):
+            requested.append(url)
             if isinstance(outcome, BaseException):
                 raise outcome
+            if callable(outcome):
+                return outcome()
             return io.BytesIO(outcome)
 
-        monkeypatch.setattr(m.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
+        return requested
 
     return install
 
 
-def test_fetch_reports_ok_and_the_record_when_the_request_succeeds(transport):
-    transport(_ATOM_ENTRY)
-    result = fetch_metadata("2606.09995")
+@pytest.mark.parametrize(
+    ("arxiv_id", "expected"),
+    [
+        (
+            "2409.03108",
+            {
+                "title": "Loop Series Expansions for Tensor Networks",
+                "authors": [
+                    "Glen Evenbly",
+                    "Nicola Pancotti",
+                    "Ashley Milsted",
+                    "Johnnie Gray",
+                    "Garnet Kin-Lic Chan",
+                ],
+                "version": "2409.03108v2",
+                "published": "2024-09-04",
+                "primary_category": "quant-ph",
+                "categories": ["quant-ph", "cond-mat.dis-nn"],
+                "doi": "10.1103/vqks-cr6x",
+            },
+        ),
+        (
+            # A collaboration: DataCite gives only `name`.
+            "1207.7214",
+            {
+                "authors": ["The ATLAS Collaboration"],
+                "version": "1207.7214v2",
+                "published": "2012-07-31",
+                "primary_category": "hep-ex",
+                "categories": ["hep-ex"],
+                "doi": "10.1016/j.physletb.2012.08.020",
+            },
+        ),
+        (
+            # "Yu" is Personal without a givenName and "Hao" a single name tagged
+            # Organizational; `name` holds each as arXiv lists them.
+            "2609.14487",
+            {
+                "authors": ["Yu", "Hao"],
+                "version": "2609.14487v1",
+                "primary_category": "econ.GN",
+                "doi": None,
+            },
+        ),
+        (
+            # A legacy id keeps its slash, and DataCite stores the DOI lowercased.
+            "hep-th/9711200",
+            {
+                "authors": ["Juan M. Maldacena"],
+                "version": "hep-th/9711200v3",
+                "published": "1997-11-27",
+                "categories": ["hep-th"],
+                "doi": "10.1023/a:1026654312961",
+            },
+        ),
+        (
+            # The primary category comes first even though it is not the
+            # alphabetically first code.
+            "2203.02155",
+            {
+                "version": "2203.02155v1",
+                "published": "2022-03-04",
+                "primary_category": "cs.CL",
+                "categories": ["cs.CL", "cs.AI", "cs.LG"],
+                "doi": None,
+            },
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else "",
+)
+def test_a_datacite_record_maps_onto_the_frontmatter_fields(
+    transport, arxiv_id, expected
+):
+    requested = transport(_record(arxiv_id))
+    result = fetch_metadata(arxiv_id)
+
+    assert requested == [arxiv_metadata._API_URL + arxiv_id]
     assert result.status == METADATA_OK
-    assert result.error is None
     assert result.metadata is not None
-    assert result.metadata.title == "A Study of Things"
-    assert result.metadata.version == "2606.09995v1"
+    for field_name, value in expected.items():
+        assert getattr(result.metadata, field_name) == value, field_name
+    assert result.metadata.title
+    assert result.metadata.abstract
 
 
-def test_fetch_reports_the_transport_failure_rather_than_discarding_it(transport):
-    # The captured cause is the whole point: without it the warning could say
-    # only that something went wrong, which does not distinguish an outage from
-    # a rate limit from a bad id.
-    transport(OSError("connection reset"))
+def test_the_abstract_is_the_abstract_description_not_the_comments(transport):
+    transport(_record("2409.03108"))
+    result = fetch_metadata("2409.03108")
+    assert result.metadata is not None
+    assert result.metadata.abstract is not None
+    assert result.metadata.abstract.startswith("Belief propagation (BP)")
+    assert "Main text: 6 pages" not in result.metadata.abstract
+
+
+@pytest.mark.parametrize("revision", [1, 2])
+def test_a_requested_revision_is_recorded_and_looked_up_by_the_bare_id(
+    transport, revision
+):
+    requested = transport(_record("2409.03108"))
+    result = fetch_metadata(f"2409.03108v{revision}")
+    assert requested == [arxiv_metadata._API_URL + "2409.03108"]
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.version == f"2409.03108v{revision}"
+
+
+def test_a_requested_revision_beyond_the_record_is_unavailable(transport):
+    transport(_record("2409.03108"))
+    result = fetch_metadata("2409.03108v3")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.error == "DataCite lists 2 versions for 2409.03108, not 2409.03108v3"
+
+
+# --- lookup: mapping rules on shapes the stored records do not cover --------
+
+
+def _submitted(*labels: str) -> list[dict]:
+    return [
+        {
+            "date": f"2020-01-{i + 1:02d}T00:00:00Z",
+            "dateType": "Submitted",
+            "dateInformation": label,
+        }
+        for i, label in enumerate(labels)
+    ]
+
+
+def test_the_latest_revision_compares_numerically():
+    attributes = {"dates": _submitted("v1", "v9", "v10")}
+    assert (
+        arxiv_metadata._parse_record("2001.00001", attributes).version
+        == "2001.00001v10"
+    )
+
+
+def test_no_submitted_date_leaves_version_and_published_null():
+    attributes = {"dates": [{"date": "2020", "dateType": "Issued"}]}
+    meta = arxiv_metadata._parse_record("2001.00001", attributes)
+    assert meta.version is None
+    assert meta.published is None
+
+
+def test_a_record_with_wrongly_shaped_fields_parses_to_empty_fields():
+    # DataCite is an external producer; a null or mistyped field must not raise.
+    attributes = {
+        "titles": "not a list",
+        "creators": None,
+        "dates": {"v1": "2020"},
+        "subjects": [5, None],
+        "relatedIdentifiers": 7,
+        "descriptions": [["Abstract"]],
+    }
+    meta = arxiv_metadata._parse_record("2001.00001", attributes)
+    assert meta == ArxivMetadata()
+
+
+def test_the_first_non_empty_title_is_taken():
+    attributes = {"titles": [{"title": "  "}, {"title": "Second"}]}
+    assert arxiv_metadata._parse_record("2001.00001", attributes).title == "Second"
+
+
+def test_a_creator_without_both_name_parts_falls_back_to_name():
+    attributes = {
+        "creators": [
+            {"name": "Doe, Jane", "givenName": "Jane", "familyName": "Doe"},
+            {"name": "Plato", "givenName": "Plato"},
+            {"name": "Nobody Given", "familyName": "Given"},
+            {"givenName": "", "familyName": ""},
+        ]
+    }
+    authors = arxiv_metadata._parse_record("2001.00001", attributes).authors
+    assert authors == ["Jane Doe", "Plato", "Nobody Given"]
+
+
+def test_only_arxiv_subjects_with_a_code_become_categories():
+    attributes = {
+        "subjects": [
+            {"subject": "Mathematical Physics (math-ph)", "subjectScheme": "arXiv"},
+            {
+                "subject": "FOS: Physical sciences",
+                "subjectScheme": "Fields of Science and Technology (FOS)",
+            },
+            {"subject": "No code here", "subjectScheme": "arXiv"},
+            {"subject": "Quantum Physics (quant-ph)", "subjectScheme": "arXiv"},
+        ]
+    }
+    meta = arxiv_metadata._parse_record("2001.00001", attributes)
+    assert meta.categories == ["math-ph", "quant-ph"]
+    assert meta.primary_category == "math-ph"
+
+
+def test_only_version_of_dois_are_transcribed_and_several_are_joined():
+    attributes = {
+        "relatedIdentifiers": [
+            {
+                "relationType": "IsVersionOf",
+                "relatedIdentifierType": "DOI",
+                "relatedIdentifier": "10.1/a",
+            },
+            {
+                "relationType": "IsVersionOf",
+                "relatedIdentifierType": "URL",
+                "relatedIdentifier": "https://x",
+            },
+            {
+                "relationType": "IsCitedBy",
+                "relatedIdentifierType": "DOI",
+                "relatedIdentifier": "10.1/c",
+            },
+            {
+                "relationType": "IsVersionOf",
+                "relatedIdentifierType": "DOI",
+                "relatedIdentifier": "10.1/B",
+            },
+        ]
+    }
+    assert arxiv_metadata._parse_record("2001.00001", attributes).doi == "10.1/a 10.1/B"
+
+
+def test_a_record_without_an_abstract_description_has_a_null_abstract():
+    attributes = {
+        "descriptions": [{"description": "5 pages", "descriptionType": "Other"}]
+    }
+    assert arxiv_metadata._parse_record("2001.00001", attributes).abstract is None
+
+
+# --- lookup: failures, each with its own cause ------------------------------
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    from email.message import Message
+
+    return urllib.error.HTTPError(
+        "https://api.datacite.org", code, "msg", Message(), io.BytesIO()
+    )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "cause"),
+    [
+        (
+            _http_error(404),
+            "DataCite has no record for 10.48550/arXiv.2606.09995 (HTTP 404)",
+        ),
+        (_http_error(429), "DataCite rate-limited the request (HTTP 429)"),
+        (_http_error(503), "DataCite server error (HTTP 503)"),
+        (_http_error(403), "HTTP 403"),
+        (
+            urllib.error.URLError("Name or service not known"),
+            "URLError: Name or service not known",
+        ),
+        (OSError("connection reset"), "OSError: connection reset"),
+        (b'{"data": {"attributes": null}}', "DataCite response has no data.attributes"),
+        (b"[]", "DataCite response has no data.attributes"),
+        (b'{"errors": []}', "DataCite response has no data.attributes"),
+    ],
+    ids=[
+        "404",
+        "429",
+        "5xx",
+        "other-http",
+        "url-error",
+        "os-error",
+        "null-attributes",
+        "top-level-list",
+        "no-data",
+    ],
+)
+def test_each_failure_is_unavailable_with_its_own_cause(transport, outcome, cause):
+    transport(outcome)
     result = fetch_metadata("2606.09995")
     assert result.status == METADATA_UNAVAILABLE
     assert result.metadata is None
-    assert result.error is not None
-    assert "OSError" in result.error
-    assert "connection reset" in result.error
+    assert result.error == cause
 
 
-def test_fetch_reports_a_parse_failure_as_unavailable(transport):
-    transport(b"<feed>not closed")
+@pytest.mark.parametrize("body", [b"{not json", b"\xff\xfe\xfa"], ids=["json", "utf-8"])
+def test_an_unparseable_body_is_unavailable(transport, body):
+    transport(body)
     result = fetch_metadata("2606.09995")
     assert result.status == METADATA_UNAVAILABLE
-    assert result.metadata is None
-    assert result.error
+    assert result.failure_cause.startswith("DataCite returned malformed JSON: ")
 
 
-def test_fetch_reports_a_response_without_an_entry_as_unavailable(transport):
-    # Same status as an outage, since the caller learns as little either way.
-    # The cause text is what tells the two apart.
-    transport(_ATOM_NO_ENTRY)
-    result = fetch_metadata("2606.09995")
+def test_an_unanticipated_exception_in_the_lookup_is_still_unavailable(
+    transport, monkeypatch
+):
+    transport(_record("2409.03108"))
+
+    def boom(*_args):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(arxiv_metadata, "_parse_record", boom)
+    result = fetch_metadata("2409.03108")
     assert result.status == METADATA_UNAVAILABLE
-    assert result.metadata is None
-    assert result.error == "arXiv returned no record for this id"
+    assert result.error == "RuntimeError: boom"
+
+
+# --- lookup: the deadline ----------------------------------------------------
+
+
+def test_the_deadline_bounds_the_whole_lookup(transport):
+    def slow():
+        time.sleep(2)
+        return io.BytesIO(_record("2409.03108"))
+
+    transport(slow)
+    started = time.monotonic()
+    result = fetch_metadata("2409.03108", deadline=0.2)
+    elapsed = time.monotonic() - started
+
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.error == "metadata lookup exceeded the 0.2 s budget"
+    assert elapsed < 1.5
+
+
+def test_the_process_exits_without_waiting_for_an_abandoned_lookup():
+    # A worker the interpreter joins at exit would hold the process until the
+    # request ended, which is what a daemon thread avoids.
+    program = textwrap.dedent(
+        """
+        import time, urllib.request
+        import arxiv_doc_builder.arxiv_metadata as m
+
+        def hang(url, timeout=None):
+            time.sleep(30)
+
+        urllib.request.urlopen = hang
+        print(m.fetch_metadata("2409.03108", deadline=0.2).status)
+        """
+    )
+    started = time.monotonic()
+    result = subprocess.run(
+        [sys.executable, "-c", program], capture_output=True, text=True, timeout=60
+    )
+    elapsed = time.monotonic() - started
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == METADATA_UNAVAILABLE
+    assert elapsed < 10
+
+
+@pytest.mark.parametrize("deadline", [0, -1.0, math.nan, math.inf])
+def test_a_deadline_that_cannot_bound_the_lookup_is_rejected(deadline):
+    with pytest.raises(ValueError):
+        fetch_metadata("2409.03108", deadline=deadline)
+
+
+# --- handoff between processes -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "fetch",
+    [
+        MetadataFetch(METADATA_OK, metadata=_FULL),
+        MetadataFetch(METADATA_OK, metadata=ArxivMetadata()),
+        MetadataFetch(
+            METADATA_OK,
+            metadata=ArxivMetadata(title='q"uote \\ back\nline é \x85', authors=[""]),
+        ),
+        MetadataFetch(METADATA_UNAVAILABLE, error="URLError: timed out"),
+    ],
+    ids=["full", "empty-record", "string-edges", "unavailable"],
+)
+def test_a_handoff_reads_back_equal_to_what_was_written(tmp_path, fetch):
+    path = tmp_path / "handoff.json"
+    write_metadata_handoff(path, "2606.09995", fetch)
+    assert read_metadata_handoff(path, "2606.09995") == fetch
+
+
+def test_a_handoff_path_given_as_a_string_is_read(tmp_path):
+    path = tmp_path / "handoff.json"
+    fetch = MetadataFetch(METADATA_OK, metadata=_FULL)
+    write_metadata_handoff(path, "2606.09995", fetch)
+    assert read_metadata_handoff(str(path), "2606.09995") == fetch  # type: ignore[arg-type]
+
+
+_GOOD_METADATA = {
+    "title": "T",
+    "authors": ["A"],
+    "version": None,
+    "published": None,
+    "primary_category": None,
+    "categories": [],
+    "doi": None,
+    "abstract": None,
+}
+
+
+def _handoff(**overrides) -> dict:
+    fetch = {"status": METADATA_OK, "metadata": dict(_GOOD_METADATA), "error": None}
+    fetch.update(overrides.pop("fetch", {}))
+    payload = {"arxiv_id": "2606.09995", "fetch": fetch}
+    payload.update(overrides)
+    return payload
+
+
+def _with_metadata(**fields) -> dict:
+    return _handoff(fetch={"metadata": {**_GOOD_METADATA, **fields}})
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{not json",
+        "[]",
+        _handoff(extra=1),
+        _handoff(arxiv_id="2606.09995v1"),
+        _handoff(fetch={"status": 5}),
+        _handoff(fetch={"status": METADATA_UNAVAILABLE, "metadata": None, "error": 5}),
+        _handoff(
+            fetch={"status": METADATA_UNAVAILABLE, "metadata": None, "error": "  "}
+        ),
+        _handoff(fetch={"status": METADATA_OK, "metadata": None}),
+        _handoff(fetch={"metadata": ["T"]}),
+        {
+            "arxiv_id": "2606.09995",
+            "fetch": {"status": METADATA_OK, "metadata": _GOOD_METADATA},
+        },
+        _with_metadata(authors="A"),
+        _with_metadata(authors=["A", 1]),
+        _with_metadata(title=7),
+        _with_metadata(title=True),
+        {
+            **_handoff(),
+            "fetch": {
+                **_handoff()["fetch"],
+                "metadata": {**_GOOD_METADATA, "journal": None},
+            },
+        },
+    ],
+    ids=[
+        "not-json",
+        "not-an-object",
+        "extra-top-level-key",
+        "other-id",
+        "status-not-a-string",
+        "error-not-a-string",
+        "blank-error",
+        "ok-without-record",
+        "metadata-not-an-object",
+        "missing-error-key",
+        "authors-a-string",
+        "authors-with-a-number",
+        "title-a-number",
+        "title-a-bool",
+        "unknown-metadata-key",
+    ],
+)
+def test_an_untrustworthy_handoff_is_unavailable_with_a_cause(tmp_path, content):
+    import json
+
+    path = tmp_path / "handoff.json"
+    path.write_text(
+        content if isinstance(content, str) else json.dumps(content), encoding="utf-8"
+    )
+    result = read_metadata_handoff(path, "2606.09995")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.failure_cause.startswith("metadata handoff unreadable: ")
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_a_handoff_path_that_is_not_a_readable_file_is_unavailable(tmp_path, kind):
+    path = tmp_path / "handoff.json"
+    if kind == "directory":
+        path.mkdir()
+    result = read_metadata_handoff(path, "2606.09995")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.failure_cause.startswith("metadata handoff unreadable: ")
+
+
+# --- fetch outcome: status, cause, and what each one licenses ---------------
 
 
 @pytest.mark.parametrize(
@@ -389,10 +808,10 @@ def test_unknown_status_token_is_rejected_rather_than_rendered():
         _fm(_FULL, metadata_status="degraded")
 
 
-def test_a_populated_record_does_not_imply_the_arxiv_record_was_read():
-    # The PDF path builds a record from the PDF's own title when arXiv is
-    # unreachable. A present record is not evidence that arXiv was reached.
-    # Only metadata_status answers that.
+def test_a_populated_record_does_not_imply_the_record_was_read():
+    # The PDF path builds a record from the PDF's own title when the lookup
+    # failed. A present record is not evidence that DataCite was reached. Only
+    # metadata_status answers that.
     from_pdf = ArxivMetadata(title="From The PDF", authors=["Jane Doe"])
     parsed = _parse(
         _fm(from_pdf, source_type="pdf", metadata_status=METADATA_UNAVAILABLE)
@@ -400,14 +819,6 @@ def test_a_populated_record_does_not_imply_the_arxiv_record_was_read():
     assert parsed["title"] == "From The PDF"
     assert parsed["metadata_status"] == METADATA_UNAVAILABLE
     assert parsed["doi"] is None
-
-
-def test_parse_version_survives_a_url_the_parser_rejects():
-    # The Atom <id> is an untrusted field of a fetched document, and an
-    # unclosed IPv6 bracket makes urlparse raise. fetch_metadata reads this
-    # after its try block and documents parse failures as captured, so a raise
-    # here would escape that guarantee.
-    assert parse_version_from_id("http://[::1/abs/2409.03108v2") == "2409.03108v2"
 
 
 def test_failure_cause_is_a_plain_string_for_every_failed_outcome():
@@ -425,7 +836,7 @@ def test_failure_cause_refuses_an_outcome_that_did_not_fail():
 
 @pytest.mark.parametrize("status", [METADATA_OK, METADATA_UNAVAILABLE])
 def test_a_document_with_no_arxiv_id_cannot_claim_a_record_was_sought(status):
-    # Without an id there is nothing to ask arXiv, so neither "the record was
+    # Without an id there is nothing to look up, so neither "the record was
     # read" nor "the request failed" describes the document. Only
     # not_requested does, and rendering either other token would put a state
     # into the provenance surface that no run can produce.
@@ -434,75 +845,10 @@ def test_a_document_with_no_arxiv_id_cannot_claim_a_record_was_sought(status):
 
 
 def test_a_document_with_an_arxiv_id_cannot_claim_none_was_sought():
-    # This is the converse the equivalence adds. An id was supplied, arXiv was
-    # asked, and the answer is either ok or unavailable.
+    # This is the converse the equivalence adds. An id was supplied, the record
+    # was looked up, and the answer is either ok or unavailable.
     with pytest.raises(ValueError):
         _fm(_FULL, arxiv_id="2606.09995", metadata_status=METADATA_NOT_REQUESTED)
-
-
-_ATOM_ERROR_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <id>https://arxiv.org/api/errors#incorrect_id_format_for_2409.3108</id>
-    <title>Error</title>
-    <summary>incorrect id format for 2409.3108</summary>
-    <author><name>arXiv api core</name></author>
-  </entry>
-</feed>
-"""
-
-
-def test_fetch_reports_an_arxiv_error_report_as_unavailable(transport):
-    # arXiv answers a rejected id with an entry, not with an empty feed, and
-    # that entry parses like a record. Taken at face value it writes title
-    # "Error" and author "arXiv api core" into a document reporting ok, where
-    # a null field reads as a confirmed absence.
-    transport(_ATOM_ERROR_ENTRY)
-    result = fetch_metadata("2409.3108")
-    assert result.status == METADATA_UNAVAILABLE
-    assert result.metadata is None
-    assert result.error == "incorrect id format for 2409.3108"
-
-
-_ATOM_ERROR_WITHOUT_SUMMARY = b"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <id>https://arxiv.org/api/errors#unspecified</id>
-    <title>Error</title>
-  </entry>
-</feed>
-"""
-
-_ATOM_UNPARSEABLE_ID = b"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <id>http://[::1/abs/2409.03108v2</id>
-    <title>A Study of Things</title>
-  </entry>
-</feed>
-"""
-
-
-def test_fetch_names_a_cause_when_the_error_entry_carries_no_summary(transport):
-    # The warning prints the cause verbatim. An error entry can arrive without
-    # a summary, and the fallback literal is what keeps that line from being
-    # blank.
-    transport(_ATOM_ERROR_WITHOUT_SUMMARY)
-    result = fetch_metadata("2409.3108")
-    assert result.status == METADATA_UNAVAILABLE
-    assert result.error == "arXiv reported an error for this id"
-
-
-def test_fetch_survives_an_entry_id_the_url_parser_rejects(transport):
-    # The entry id is untrusted text, and an unclosed IPv6 bracket makes
-    # urlparse raise. Both places that parse it run outside fetch_metadata's
-    # try block, so a raise here would escape the docstring's guarantee that
-    # parse failures are captured.
-    transport(_ATOM_UNPARSEABLE_ID)
-    result = fetch_metadata("2409.03108")
-    assert result.status == METADATA_OK
-    assert result.metadata is not None
-    assert result.metadata.version == "2409.03108v2"
 
 
 def test_the_status_tokens_are_the_documented_literals():

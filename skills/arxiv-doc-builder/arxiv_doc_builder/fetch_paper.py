@@ -20,40 +20,50 @@ from typing import Optional
 # fallback — only a genuinely absent top-level package falls through.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_doc_builder.arxiv_metadata import MetadataFetch, fetch_metadata
+    from arxiv_doc_builder.arxiv_metadata import (
+        MetadataFetch,
+        fetch_metadata,
+        read_metadata_handoff,
+    )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
     # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_metadata import MetadataFetch, fetch_metadata
+    from arxiv_metadata import (
+        MetadataFetch,
+        fetch_metadata,
+        read_metadata_handoff,
+    )
 
 
 _METADATA_FILE = ".arxiv-fetch.json"
 
 
 def _probe_metadata(arxiv_id: str) -> MetadataFetch:
-    """Query the arXiv API for the record the drift check reads.
+    """Look up the record the drift check reads.
 
-    Returns the whole outcome, not just a version string. An unreachable API
-    and a record without a version tail both leave the sidecar unwritten, and
-    only the outcome tells them apart.
+    Returns the whole outcome, not just a version string. A failed lookup and a
+    record without a version both leave the sidecar unwritten, and only the
+    outcome tells them apart.
 
-    Delegates to ``fetch_metadata`` for the Atom request. ``_latest_version``
-    reads the version out. A short timeout keeps the pre-fetch probe light.
+    Delegates to ``fetch_metadata``, which bounds the lookup's wall time.
+    ``_latest_version`` reads the version out. A run started by
+    ``convert_paper`` is handed that script's lookup through
+    ``--metadata-handoff`` and does not call this.
 
     Assumes ``arxiv_id`` has already been validated to canonical form by
     ``validate_arxiv_id``. No zero-padding happens here.
     """
-    return fetch_metadata(arxiv_id, timeout=5)
+    return fetch_metadata(arxiv_id)
 
 
 def _latest_version(probe: MetadataFetch) -> Optional[str]:
     """The version string the probe reports, or ``None`` when it reports none.
 
-    The rest of this module reads ``None`` as "no usable answer from the API",
-    whether the request failed or the record carried no version tail.
+    The rest of this module reads ``None`` as "no usable answer from the
+    lookup", whether the lookup failed or the record carried no version.
     """
     return probe.metadata.version if probe.metadata else None
 
@@ -99,9 +109,9 @@ def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
             "the reason this warning states"
         )
     if probe.error is not None:
-        situation = f"could not read the arXiv record for {arxiv_id}: {probe.error}"
+        situation = f"could not read DataCite's record for {arxiv_id}: {probe.error}"
     else:
-        situation = f"the arXiv record for {arxiv_id} carried no version"
+        situation = f"DataCite's record for {arxiv_id} carried no version"
     return (
         f"WARNING: {situation}\n"
         f"  Version drift was not checked, and {_METADATA_FILE} was not updated."
@@ -194,9 +204,9 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
 def _needs_refresh(paper_dir: Path, latest: Optional[str]) -> bool:
     """Decide whether cached artifacts should be re-fetched.
 
-    Returns True when the arXiv API reports a newer version than what
-    is recorded locally. Returns False (trust cache) when the API is
-    unreachable or the versions match.
+    Returns True when the metadata record reports a different version
+    than what is recorded locally. Returns False (trust cache) when the
+    lookup reports no version or the versions match.
     """
     if latest is None:
         return False
@@ -353,6 +363,10 @@ def main():
         default=Path("papers"),
         help="Output directory (default: ./papers)",
     )
+    # The lookup convert_paper already made, so this run does not repeat it.
+    # A plain string: an argparse type= failure would exit 2, which is
+    # reserved for the ambiguous-main-.tex signal.
+    parser.add_argument("--metadata-handoff", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     try:
@@ -376,7 +390,10 @@ def main():
     print()
 
     # Check for version drift before fetching
-    probe = _probe_metadata(args.arxiv_id)
+    if args.metadata_handoff is not None:
+        probe = read_metadata_handoff(Path(args.metadata_handoff), args.arxiv_id)
+    else:
+        probe = _probe_metadata(args.arxiv_id)
     latest = _latest_version(probe)
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:

@@ -1,8 +1,8 @@
 """Tests for version drift detection logic.
 
 They cover the pure decisions the drift check rests on, namely whether to
-re-fetch, what version the probe reports, whether to write the record, and what
-to say when a run fetched material without advancing it. The cache read and
+re-fetch, what version the lookup reports, whether to write the record, and
+what to say when a run fetched material without advancing it. The cache read and
 write helpers underneath are covered too. Nothing here touches the network.
 """
 
@@ -26,8 +26,8 @@ def test_needs_refresh_no_cache_with_latest(tmp_path):
     assert _needs_refresh(tmp_path, "2409.03108v2") is True
 
 
-def test_needs_refresh_no_cache_api_offline(tmp_path):
-    """No metadata and API offline → trust cache (no re-fetch)."""
+def test_needs_refresh_no_cache_lookup_failed(tmp_path):
+    """No metadata and no version from the lookup → trust cache (no re-fetch)."""
     assert _needs_refresh(tmp_path, None) is False
 
 
@@ -43,8 +43,8 @@ def test_needs_refresh_version_differs(tmp_path):
     assert _needs_refresh(tmp_path, "2409.03108v2") is True
 
 
-def test_needs_refresh_api_offline_with_cache(tmp_path):
-    """API offline but cache exists → trust cache."""
+def test_needs_refresh_lookup_failed_with_cache(tmp_path):
+    """Lookup reports no version but cache exists → trust cache."""
     _write_cached_version(tmp_path, "2409.03108v1")
     assert _needs_refresh(tmp_path, None) is False
 
@@ -73,10 +73,19 @@ def test_write_overwrites(tmp_path):
     assert _read_cached_version(tmp_path) == "2409.03108v2"
 
 
-# --- what the probe yields, and when the sidecar advances -------------------
+def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path):
+    """A pinned id reports its own revision; a sidecar naming another one re-fetches
+    once, which downloads the same pinned revision, and is stable afterwards."""
+    _write_cached_version(tmp_path, "2409.03108v2")
+    assert _needs_refresh(tmp_path, "2409.03108v1") is True
+    assert _record_version(tmp_path, "2409.03108v1", fetched=True) is True
+    assert _needs_refresh(tmp_path, "2409.03108v1") is False
 
 
-def test_latest_version_reads_the_tail_off_a_successful_probe(probe_with_version):
+# --- what the lookup yields, and when the sidecar advances ------------------
+
+
+def test_latest_version_reads_the_version_off_a_successful_probe(probe_with_version):
     assert _latest_version(probe_with_version) == PROBE_VERSION
 
 
@@ -87,8 +96,8 @@ def test_latest_version_is_none_when_the_probe_failed(failed_probe):
 def test_latest_version_is_none_when_the_record_carried_no_version(
     probe_without_version,
 ):
-    # A record can parse and still yield no version tail, reaching the same
-    # decision as a failed request by a different route. That is why the
+    # A record can parse and still yield no version, reaching the same
+    # decision as a failed lookup by a different route. That is why the
     # sidecar branches on the version and not on the status.
     assert _latest_version(probe_without_version) is None
 

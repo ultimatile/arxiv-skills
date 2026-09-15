@@ -1,0 +1,85 @@
+{
+  "data": {
+    "id": "10.48550/arxiv.1207.7214",
+    "type": "dois",
+    "attributes": {
+      "doi": "10.48550/arxiv.1207.7214",
+      "titles": [
+        {
+          "title": "Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC"
+        }
+      ],
+      "creators": [
+        {
+          "name": "The ATLAS Collaboration",
+          "nameType": "Organizational"
+        }
+      ],
+      "dates": [
+        {
+          "date": "2012-07-31T11:59:59Z",
+          "dateType": "Submitted",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2012-08-27T18:31:01Z",
+          "dateType": "Updated",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2012-08-31T19:29:54Z",
+          "dateType": "Submitted",
+          "dateInformation": "v2"
+        },
+        {
+          "date": "2012-09-04T00:04:06Z",
+          "dateType": "Updated",
+          "dateInformation": "v2"
+        },
+        {
+          "date": "2012-07",
+          "dateType": "Available",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2012",
+          "dateType": "Issued"
+        }
+      ],
+      "subjects": [
+        {
+          "lang": "en",
+          "subject": "High Energy Physics - Experiment (hep-ex)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "subject": "FOS: Physical sciences",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        },
+        {
+          "subject": "FOS: Physical sciences",
+          "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        }
+      ],
+      "relatedIdentifiers": [
+        {
+          "relationType": "IsVersionOf",
+          "relatedIdentifier": "10.1016/j.physletb.2012.08.020",
+          "relatedIdentifierType": "DOI"
+        }
+      ],
+      "descriptions": [
+        {
+          "description": "A search for the Standard Model Higgs boson in proton-proton collisions with the ATLAS detector at the LHC is presented. The datasets used correspond to integrated luminosities of approximately 4.8 fb^-1 collected at sqrt(s) = 7 TeV in 2011 and 5.8 fb^-1 at sqrt(s) = 8 TeV in 2012. Individual searches in the channels H-&gt;ZZ^(*)-&gt;llll, H-&gt;gamma gamma and H-&gt;WW-&gt;e nu mu nu in the 8 TeV data are combined with previously published results of searches for H-&gt;ZZ^(*), WW^(*), bbbar and tau^+tau^- in the 7 TeV data and results from improved analyses of the H-&gt;ZZ^(*)-&gt;llll and H-&gt;gamma gamma channels in the 7 TeV data. Clear evidence for the production of a neutral boson with a measured mass of 126.0 +/- 0.4(stat) +/- 0.4(sys) GeV is presented. This observation, which has a significance of 5.9 standard deviations, corresponding to a background fluctuation probability of 1.7x10^-9, is compatible with the production and decay of the Standard Model Higgs boson.",
+          "descriptionType": "Abstract"
+        },
+        {
+          "description": "24 pages plus author list (38 pages total), 12 figures, 7 tables, revised author list, matches version to appear in Physics Letters B",
+          "descriptionType": "Other"
+        }
+      ],
+      "version": "2"
+    }
+  }
+}

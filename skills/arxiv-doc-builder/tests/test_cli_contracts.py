@@ -80,3 +80,46 @@ def test_convert_latex_default_path_normalizes_slash_for_legacy_id(tmp_path):
         "safe_arxiv_id must run before Path construction.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+@pytest.mark.parametrize(
+    "script",
+    ["fetch_paper.py", "convert_latex.py", "convert_pdf_simple.py"],
+)
+def test_the_metadata_handoff_option_is_not_advertised(script, tmp_path):
+    # The option carries convert_paper's lookup between its own steps. It is not
+    # an interface for users, so --help leaves it out.
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / script), "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--metadata-handoff" not in result.stdout
+
+
+def test_an_unreadable_handoff_path_never_exits_2(tmp_path):
+    # The option takes a plain string. A type= converter that rejected the
+    # value would make argparse exit 2, which convert_paper would report as an
+    # ambiguous main .tex.
+    handoff = tmp_path / "handoff.json"
+    handoff.write_text("{not json", encoding="utf-8")
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPTS_DIR / "convert_latex.py"),
+            "2409.03108",
+            "--source-dir",
+            str(source_dir),
+            "--metadata-handoff",
+            str(handoff),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+    )
+    # No main .tex in an empty source directory is a generic failure.
+    assert result.returncode == 1, f"stdout: {result.stdout}\nstderr: {result.stderr}"
