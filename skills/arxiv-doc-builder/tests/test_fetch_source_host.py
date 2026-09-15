@@ -1,8 +1,8 @@
 """Which host the source download goes to.
 
-`arxiv.org/robots.txt` disallows `/src`, while arXiv designates
-`export.arxiv.org` for programmatic access. Both serve the same archive, so
-nothing downstream notices if the URL drifts back; only this pin does.
+`fetch_source` must download from `export.arxiv.org`; the reason is stated
+where it builds `source_url`. Both hosts serve the same archive, so nothing
+else notices if the URL drifts to `arxiv.org`; only this pin does.
 """
 
 import subprocess

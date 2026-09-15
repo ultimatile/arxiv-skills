@@ -44,7 +44,6 @@ fi
 
 - **PDF**: `https://arxiv.org/pdf/{ARXIV_ID}.pdf`
 - **Source**: `https://export.arxiv.org/src/{ARXIV_ID}` (returns tar.gz)
-  - Use `export.arxiv.org`, not `arxiv.org`: `arxiv.org/robots.txt` disallows `/src`, and arXiv [designates `export.arxiv.org` for programmatic access](https://info.arxiv.org/help/bulk_data.html).
 - **Abstract**: `https://arxiv.org/abs/{ARXIV_ID}`
 
 ## Source File Structure

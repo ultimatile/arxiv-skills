@@ -231,8 +231,9 @@ def fetch_source(
         True if source is available (freshly fetched or already present),
         False if the fetch failed or the source is not available on arXiv.
     """
-    # arxiv.org/robots.txt disallows /src; arXiv designates export.arxiv.org
-    # for programmatic access (https://info.arxiv.org/help/bulk_data.html).
+    # export.arxiv.org is the host arXiv designates for programmatic access
+    # (https://info.arxiv.org/help/bulk_data.html); arxiv.org/robots.txt
+    # additionally disallows /src.
     source_url = f"https://export.arxiv.org/src/{arxiv_id}"
     downloaded = output_dir / f"{file_id}-src.tar.gz"
     source_dir = output_dir / "source"
