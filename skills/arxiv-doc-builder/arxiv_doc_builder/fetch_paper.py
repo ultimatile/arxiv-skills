@@ -74,16 +74,18 @@ def _latest_version(probe: MetadataFetch) -> Optional[str]:
     return probe.metadata.version if probe.metadata else None
 
 
-def _has_material(paper_dir: Path) -> bool:
-    """Whether the paper directory holds material a recorded revision describes.
+def _has_cached_source(paper_dir: Path) -> bool:
+    """Whether a cached source tree stands behind the recorded revision.
 
-    The same two things the fetch steps treat as a cache hit: a source tree
-    holding a ``.tex``, or a non-empty PDF.
+    The source is the artifact that recorded revision protects: the fetch step
+    deletes it, hand edits included, when the revision moves, and reuses it
+    without a download when it does not. A cached PDF answers nothing here.
+    The fetch step would still ask for the recorded revision's source, so a
+    revision that no longer exists would fail to download on every run while
+    the PDF alone kept the record alive.
     """
     source = paper_dir / "source"
-    if source.is_dir() and any(source.rglob("*.tex")):
-        return True
-    return any(pdf.stat().st_size > 0 for pdf in (paper_dir / "pdf").glob("*.pdf"))
+    return source.is_dir() and any(source.rglob("*.tex"))
 
 
 def _target_version(
@@ -101,9 +103,9 @@ def _target_version(
     """
     if pinned or latest is None:
         return latest
-    if not _has_material(paper_dir):
-        # With nothing on disk the record protects nothing, and a revision it
-        # names that no longer exists would be requested on every run and 404
+    if not _has_cached_source(paper_dir):
+        # With no cached source the record protects nothing, and a revision it
+        # names that no longer exists would be requested on every run and fail
         # on every run. The lookup's version wins, and the run self-heals.
         return latest
     cached = _REVISION.fullmatch(_read_cached_version(paper_dir) or "")

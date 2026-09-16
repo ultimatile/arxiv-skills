@@ -139,15 +139,22 @@ def test_target_version_keeps_a_later_recorded_revision_of_an_unpinned_id(
     assert _target_version(tmp_path, latest, pinned=pinned) == target
 
 
-def test_a_record_without_material_cannot_outvote_the_lookup(tmp_path):
+def test_a_record_without_a_cached_source_cannot_outvote_the_lookup(tmp_path):
     # A sidecar naming a revision that no longer exists would otherwise be
-    # re-confirmed on every run, and the download of it would fail on every
-    # run, since nothing else would ever be asked for.
+    # re-confirmed on every run, while the source download for that revision
+    # failed on every run and the LaTeX path never came back.
     _write_cached_version(tmp_path, "2409.03108v99")
     assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
 
+    # A cached PDF does not change that: the source would still be fetched at
+    # the recorded revision, which is the download that fails.
     (tmp_path / "pdf").mkdir()
     (tmp_path / "pdf" / "2409.03108.pdf").write_bytes(b"%PDF-stub")
+    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
+
+    # A cached source is what the record speaks for, so it wins there.
+    (tmp_path / "source").mkdir()
+    (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
     assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v99"
 
 

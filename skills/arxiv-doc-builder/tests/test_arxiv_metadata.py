@@ -1080,6 +1080,17 @@ def test_a_handoff_reads_back_equal_to_what_was_written(tmp_path, fetch):
     assert read_metadata_handoff(path, "2606.09995") == fetch
 
 
+def test_the_handoff_schema_lists_every_field_of_the_record():
+    # The two lists are hand-maintained, and the reader rejects a handoff whose
+    # key set differs from them. A field added to the record without being
+    # listed here would make every handoff unreadable, and `unavailable` is
+    # what a child would then write — discarding a parent lookup that
+    # succeeded, with the suite still green.
+    listed = set(arxiv_metadata._HANDOFF_SCALARS) | set(arxiv_metadata._HANDOFF_LISTS)
+    fields = {f.name for f in arxiv_metadata.dataclasses.fields(ArxivMetadata)}
+    assert listed == fields
+
+
 def test_a_handoff_path_given_as_a_string_is_read(tmp_path):
     path = tmp_path / "handoff.json"
     fetch = MetadataFetch(METADATA_OK, metadata=_FULL)
