@@ -122,7 +122,9 @@ def test_absent_doi_renders_as_bare_null_key():
     # The absence-confirmation contract: a record with no DOI must emit `doi:`
     # (null), distinct from omitting the key. A bare `key:` line, not
     # `key: ""`, is what a parser reads as None.
-    meta = ArxivMetadata(title="T", doi=None)
+    meta = ArxivMetadata(
+        title="T", doi=None, source=arxiv_metadata.METADATA_SOURCE_ARXIV
+    )
     fm = _fm(meta)
     assert "\ndoi:\n" in fm
     assert 'doi: ""' not in fm
@@ -146,7 +148,13 @@ def test_the_journal_key_reads_against_the_source_that_answered():
 def test_a_record_no_source_backs_renders_the_source_null():
     # The PDF path builds a record from the PDF's own title; nothing read it
     # from arXiv or DataCite, and the null says so.
-    parsed = _parse(_fm(ArxivMetadata(title="From PDF"), source_type="pdf"))
+    parsed = _parse(
+        _fm(
+            ArxivMetadata(title="From PDF"),
+            source_type="pdf",
+            metadata_status=METADATA_UNAVAILABLE,
+        )
+    )
     assert parsed["metadata_source"] is None
 
 
@@ -189,7 +197,9 @@ def test_full_metadata_round_trips():
 
 
 def test_absent_fields_parse_to_none():
-    meta = ArxivMetadata(title="T", doi=None, abstract=None)
+    meta = ArxivMetadata(
+        title="T", doi=None, abstract=None, source=arxiv_metadata.METADATA_SOURCE_ARXIV
+    )
     parsed = _parse(_fm(meta))
     assert "doi" in parsed and parsed["doi"] is None
     assert "abstract" in parsed and parsed["abstract"] is None
@@ -229,7 +239,10 @@ def test_offline_metadata_keeps_total_schema_with_fallback_title():
 
 
 def test_tricky_title_round_trips():
-    meta = ArxivMetadata(title='Tricky: "quotes", colon: and \\backslash')
+    meta = ArxivMetadata(
+        title='Tricky: "quotes", colon: and \\backslash',
+        source=arxiv_metadata.METADATA_SOURCE_ARXIV,
+    )
     parsed = _parse(_fm(meta, arxiv_id="x"))
     assert parsed["title"] == 'Tricky: "quotes", colon: and \\backslash'
 
@@ -240,7 +253,14 @@ def test_pdf_style_raw_author_with_newline_stays_valid_yaml():
     # embedded newline (common in malformed PDF /Author fields) must not corrupt
     # the YAML; build_frontmatter normalizes it to a single line.
     meta = ArxivMetadata(title="T", authors=["Jane Doe\n--- affiliation"])
-    parsed = _parse(_fm(meta, arxiv_id="x", source_type="pdf"))
+    parsed = _parse(
+        _fm(
+            meta,
+            arxiv_id="x",
+            source_type="pdf",
+            metadata_status=METADATA_UNAVAILABLE,
+        )
+    )
     assert parsed["authors"] == "Jane Doe --- affiliation"
 
 
@@ -257,6 +277,7 @@ def test_non_printable_characters_are_stripped_and_yaml_stays_valid():
         title="A" + controls + "B",
         authors=["Jo" + controls + "hn"],
         abstract="Clean" + controls + "Abstract",
+        source=arxiv_metadata.METADATA_SOURCE_ARXIV,
     )
     parsed = _parse(_fm(meta, arxiv_id="x", source_type="pdf"))
     assert parsed["title"] == "AB"

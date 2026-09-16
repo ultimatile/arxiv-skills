@@ -33,9 +33,10 @@ Design constraints:
   Markdown, so ``fetch_metadata`` gives up after a deadline and reports
   ``unavailable`` rather than holding the conversion.
 
-Responsibility boundary: the DOI reported here is whatever DataCite's record
-carries (passive transcription). Resolving a DOI that record does not carry
-belongs to the arxiv-lookup skill, not here.
+Responsibility boundary: the DOI reported here is whatever the answering record
+carries (passive transcription) — ``arxiv:doi`` on arXiv's feed, the
+``IsVersionOf`` identifiers on DataCite's registration. Resolving a DOI neither
+record carries belongs to the arxiv-lookup skill, not here.
 """
 
 from __future__ import annotations
@@ -546,7 +547,17 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
             _normalize(_atom_text(entry, "atom:summary"))
             or "arXiv reported an error for this id"
         )
-    return MetadataFetch(METADATA_OK, metadata=_parse_entry(entry))
+    record = _parse_entry(entry)
+    if record.version is not None and (
+        _split_version(record.version)[0] != _split_version(query)[0]
+        or _VERSION_SUFFIX.search(record.version) is None
+    ):
+        # ``version`` is the tail of the entry's id URL. A feed carrying a
+        # malformed one would otherwise put that string into the download URLs
+        # and the drift record, so a tail that does not name a revision of this
+        # paper counts as no version at all.
+        record = dataclasses.replace(record, version=None)
+    return MetadataFetch(METADATA_OK, metadata=record)
 
 
 def _datacite_http_cause(code: int, bare_id: str) -> str:
@@ -995,14 +1006,16 @@ def build_frontmatter(
             f"{METADATA_NOT_REQUESTED!r} is the only status a document with no "
             f"id can carry, and the only one a document with an id cannot"
         )
-    if metadata_status != METADATA_OK and meta is not None and meta.source is not None:
-        # The document tells a consumer that `metadata_source` is null unless
-        # the status is `ok`, so a record naming a source under another status
-        # would contradict the surface it is written onto.
+    source = meta.source if meta is not None else None
+    if (metadata_status == METADATA_OK) != (source in METADATA_SOURCES):
+        # The document tells a consumer that ``metadata_source`` is null
+        # exactly when the status is not ``ok``, so the two are checked against
+        # each other here rather than emitted side by side and left to agree.
         raise ValueError(
-            f"metadata_status {metadata_status!r} does not match a record read "
-            f"from {meta.source!r}. Only {METADATA_OK!r} carries a source, since "
-            f"the other tokens say no usable record was read"
+            f"metadata_status {metadata_status!r} does not match "
+            f"metadata_source {source!r}. {METADATA_OK!r} is the only status "
+            f"that names a source, and the source must be one of "
+            f"{METADATA_SOURCES}"
         )
     m = meta or ArxivMetadata()
     # Normalize every emitted text scalar here, so the block is clean and valid

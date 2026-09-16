@@ -30,8 +30,8 @@ registration arXiv files at DataCite for the paper's DOI,
 answer with a record. The two records do not carry the same fields, so a null
 is read against the one that answered:
 
-- `ok`. The record `metadata_source` names was read, and a null field is a
-  **confirmed absence from that record**. Under `arxiv` a null `journal` or
+- `ok`. A record was read — `metadata_source` names which one — and a null
+  field is a **confirmed absence from that record**. Under `arxiv` a null `journal` or
   `doi` supports a "preprint, not published yet" reading. Under `datacite` a
   null `journal` says nothing of the sort: that record has no journal-reference
   field at all.
