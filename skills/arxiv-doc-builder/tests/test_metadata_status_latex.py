@@ -5,14 +5,21 @@ cannot catch a caller that always reports ``ok`` or never warns, which is why
 these drive the caller and read the status back out of the document it wrote.
 
 Kept apart from the PDF-path tests to stay importable without the optional PDF
-dependencies. Each test replaces the caller's ``fetch_metadata``, so nothing
-here reaches arXiv.
+dependencies. Each test replaces the caller's ``fetch_metadata`` or hands it a
+lookup, so nothing here reaches the network.
 """
 
-from conftest import PROBE_ERROR, status_of
+import subprocess
+import sys
+
+from conftest import PROBE_ERROR, refuse_lookup, status_of
 
 from arxiv_doc_builder import convert_latex
-from arxiv_doc_builder.arxiv_metadata import METADATA_OK, METADATA_UNAVAILABLE
+from arxiv_doc_builder.arxiv_metadata import (
+    METADATA_OK,
+    METADATA_UNAVAILABLE,
+    write_metadata_handoff,
+)
 import pytest
 
 
@@ -54,3 +61,63 @@ def test_latex_path_records_ok_and_stays_silent(
 
     assert status_of(md) == METADATA_OK
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
+    ("probe_name", "status"),
+    [("probe_with_version", METADATA_OK), ("failed_probe", METADATA_UNAVAILABLE)],
+)
+def test_latex_path_given_a_handoff_uses_it_without_looking_up(
+    monkeypatch, request, capsys, tmp_path, latex_inputs, probe_name, status
+):
+    md, tex = latex_inputs
+    handoff = tmp_path / "handoff.json"
+    write_metadata_handoff(handoff, "2606.09995", request.getfixturevalue(probe_name))
+    monkeypatch.setattr(convert_latex, "fetch_metadata", refuse_lookup)
+
+    convert_latex.post_process_markdown(md, "2606.09995", tex, metadata_handoff=handoff)
+
+    assert status_of(md) == status
+    # A handed-over failure still reaches the user with its cause.
+    err = capsys.readouterr().err
+    assert (PROBE_ERROR in err) == (status == METADATA_UNAVAILABLE)
+
+
+def test_latex_main_hands_its_handoff_path_to_post_processing(monkeypatch, tmp_path):
+    # Observed without pandoc: conversion and figure copying are replaced, so
+    # the only thing left to check is what main() passes on.
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+    handoff = tmp_path / "handoff.json"
+    received = {}
+
+    def record(md_file, arxiv_id, tex_file, **kwargs):
+        received.update(kwargs, arxiv_id=arxiv_id)
+
+    monkeypatch.setattr(
+        convert_latex.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(convert_latex, "convert_with_pandoc", lambda tex, out: True)
+    monkeypatch.setattr(convert_latex, "post_process_markdown", record)
+    monkeypatch.setattr(convert_latex, "copy_figures", lambda *args: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "convert_latex.py",
+            "2606.09995",
+            "--source-dir",
+            str(source),
+            "--output",
+            str(tmp_path / "out.md"),
+            "--metadata-handoff",
+            str(handoff),
+        ],
+    )
+
+    convert_latex.main()
+
+    assert received == {"arxiv_id": "2606.09995", "metadata_handoff": handoff}

@@ -16,18 +16,33 @@ This document has two kinds of content:
 `build_frontmatter` writes one YAML block keyed identically on both conversion
 paths (LaTeX and PDF). The schema is **total**: every key is always present.
 A value that is not known renders as YAML null (a bare `key:`), which a parser
-reads as `None` and not as a missing key.
+reads as `None` and not as a missing key. The one exception is `categories`,
+which renders as an empty list (`categories: []`) instead.
 
-What a null means depends on `metadata_status`, which records whether the arXiv
-record behind the arXiv-derived fields was read:
+In the rest of this section, a null field includes an empty `categories`.
 
-- `ok`. The record was read, and a null field is a **confirmed absence**. arXiv
-  holds this paper's record and reports no value there, which supports a
-  "preprint, no journal DOI" reading.
-- `unavailable`. The request failed, arXiv returned no record for the id, or
-  arXiv rejected the id. No record reached the converter, which leaves a null
-  field **unknown** instead of a confirmed absence. The conversion names the
-  cause on stderr as it runs.
+What a null means depends on `metadata_status`, which records whether a usable
+metadata record behind the record-derived fields was read, and on
+`metadata_source`, which records where that record came from. The lookup asks
+arXiv's own API first (`metadata_source: "arxiv"`) and falls back to the
+registration arXiv files at DataCite for the paper's DOI,
+`10.48550/arXiv.<id>` (`metadata_source: "datacite"`), when arXiv does not
+answer with a record. The two records do not carry the same fields, so a null
+is read against the one that answered:
+
+- `ok`. A record was read — `metadata_source` names which one — and a null
+  field is a **confirmed absence from that record**. Under `arxiv` a null
+  `journal` and a null `doi` together support a "preprint, not published yet"
+  reading. Either one alone does not: an author can register a DOI without
+  entering a journal reference, or the reverse. Under `datacite` a
+  null `journal` says nothing of the sort: that record has no journal-reference
+  field at all.
+- `unavailable`. Neither source supplied a record. Both attempts failed, or the
+  time limit the lookup runs under ran out, or DataCite has no record for the
+  id, or the id names a
+  revision later than the latest one DataCite lists. A null field is therefore
+  **unknown** rather than a confirmed absence. The conversion names what each
+  source said on stderr as it runs.
 - `not_requested`. The conversion ran with no arXiv id, and the record was
   never sought. A null field is unknown here as well, for a different reason
   than under `unavailable`, where the question was put and no record came back.
@@ -46,10 +61,11 @@ primary_category: "cs.AI"
 categories:
   - "cs.AI"
   - "cs.CL"
-doi: "10.1145/1234567.1234568"   # or bare `doi:` (null); see metadata_status
-journal: "Proc. ACM, 2024"       # or bare `journal:` (null)
+doi: "10.1145/1234567.1234568"   # or bare `doi:` (null)
+journal: "Phys. Rev. D 76, 013009 (2007)"   # or null
 source_type: "latex"             # or "pdf"
 metadata_status: "ok"            # or "unavailable" / "not_requested"
+metadata_source: "arxiv"         # or "datacite", or null
 conversion_date: "2025-12-08T10:00:00+00:00"
 abstract: |-
   Single-paragraph abstract, whitespace-normalized.
@@ -59,18 +75,61 @@ abstract: |-
 Field notes:
 
 - `version` is the full versioned arXiv id (e.g. `2409.03108v2`, legacy
-  `hep-th/9901001v3`), recording which revision was read.
+  `hep-th/9901001v3`). For an id given without a version it names the latest
+  revision the record lists. For an id given with one it names that revision,
+  and which revision the other record-derived fields then describe depends on
+  the source that answered: arXiv is asked for that exact revision and returns
+  its entry, so they describe the revision asked for, while DataCite holds one
+  record per paper, so they describe its latest revision.
+  DataCite lists a new revision a few hours after
+  arXiv announces it, so under `metadata_source: "datacite"` the record can
+  trail what arXiv serves. That lag is the one case a recorded revision
+  outranks the one the record names, and all four of its conditions hold
+  together: DataCite answered, the id was given without a version, a source is
+  cached on disk, and `.arxiv-fetch.json` already records a later revision of
+  the same paper. The fetch step then keeps and converts the recorded revision,
+  and `version` still names the record's older one; the revision on disk is the
+  one `.arxiv-fetch.json` records. When arXiv answered, the revision it names
+  is authoritative and a later recorded one is replaced.
+  A withdrawn revision is still the paper's latest: `version` names it, the
+  abstract reads as the withdrawal notice, and `published` stays the first
+  revision's date.
+  For a paper arXiv serves as a PDF alone, no cached source stands behind the
+  recorded revision, so the revision follows whichever source answered: while
+  DataCite trails a new revision, a run that falls back to it records the
+  earlier revision and downloads that PDF again, and a later run that reaches
+  arXiv moves both forward again. It settles once DataCite lists the new
+  revision.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
-- `doi` / `journal` are whatever arXiv's own record carries. Resolving a DOI
-  that arXiv does not carry (e.g. via OpenAlex) is the arxiv-lookup skill's job,
-  not this converter's.
-- Two fields survive on local sources when no arXiv record backs the document.
+- `doi` holds the published DOIs the answering record carries, spelled as that
+  record stores them, except that unprintable characters are dropped and
+  whitespace is collapsed and trimmed. The two records carry different numbers
+  of them. Under `arxiv` the key holds at most the one DOI the author
+  registered for the paper. Under `datacite` it holds every DOI that record
+  lists as a version of the paper, separated by spaces, so the value can name
+  several. Resolving a DOI the answering record does not carry is the
+  arxiv-lookup skill's job, not this converter's.
+- `journal` is the paper's journal reference, as the author entered it on
+  arXiv. Only arXiv's record carries one, so the key is null under
+  `metadata_source: "datacite"` whatever the paper's publication history.
+- `categories` lists the arXiv category codes the answering record gives, in
+  its order. Which codes of an alias pair (`math-ph` and `math.MP`, say) appear
+  is likewise whatever that record lists.
+- `primary_category` under `arxiv` is the category that record marks as
+  primary. Under `datacite` it is the first code in `categories`: DataCite's
+  record marks none as primary, and its first code matched the primary category
+  on the arXiv abstract page in every record compared, though DataCite does not
+  document that ordering.
+- `metadata_source` names the record the fields above came from, and is null
+  exactly when `metadata_status` is not `ok`.
+- Two fields survive on local sources when no record backs the document.
   `title` comes from the LaTeX `\title` or the PDF's embedded title on either
   path, and `authors` from the PDF's embedded author on the PDF path, staying
-  null on the LaTeX path. Every other arXiv-sourced field renders as null.
-  A populated `title` or `authors` is therefore no evidence that arXiv was
-  reached, and `metadata_status` is what answers that.
+  null on the LaTeX path. Every other record-derived field renders as null, and
+  `categories` as `[]`.
+  A populated `title` or `authors` is therefore no evidence that the record was
+  read, and `metadata_status` is what answers that.
 
 ## Body Structure
 
@@ -230,6 +289,6 @@ detection (`{"version": "2409.03108v2"}`); it is not the metadata surface a
 consumer reads.
 
 The sidecar records a version only when the fetch obtained material and the
-arXiv record supplied one. A run that obtained material without a version
+metadata record supplied one. A run that obtained material without a version
 writes nothing to it, leaving any earlier value in place, and says so on
 stderr. A run that obtained no material at all exits non-zero.

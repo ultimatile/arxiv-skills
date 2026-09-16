@@ -7,6 +7,7 @@ Tries to fetch LaTeX source first, falls back to PDF if unavailable.
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -20,42 +21,112 @@ from typing import Optional
 # fallback — only a genuinely absent top-level package falls through.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_doc_builder.arxiv_metadata import MetadataFetch, fetch_metadata
+    from arxiv_doc_builder.arxiv_metadata import (
+        METADATA_SOURCE_DATACITE,
+        MetadataFetch,
+        add_metadata_handoff_option,
+        fetch_metadata,
+        resolve_metadata,
+    )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
     # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_metadata import MetadataFetch, fetch_metadata
+    from arxiv_metadata import (
+        METADATA_SOURCE_DATACITE,
+        MetadataFetch,
+        add_metadata_handoff_option,
+        fetch_metadata,
+        resolve_metadata,
+    )
 
 
 _METADATA_FILE = ".arxiv-fetch.json"
 
+# A versioned arXiv id: the bare id, then ``v<N>``.
+_REVISION = re.compile(r"(.+)v(\d+)")
+
 
 def _probe_metadata(arxiv_id: str) -> MetadataFetch:
-    """Query the arXiv API for the record the drift check reads.
+    """Look up the record the drift check reads.
 
-    Returns the whole outcome, not just a version string. An unreachable API
-    and a record without a version tail both leave the sidecar unwritten, and
-    only the outcome tells them apart.
+    Returns the whole outcome, not just a version string. A failed lookup and a
+    record without a version both leave the sidecar unwritten, and only the
+    outcome tells them apart.
 
-    Delegates to ``fetch_metadata`` for the Atom request. ``_latest_version``
-    reads the version out. A short timeout keeps the pre-fetch probe light.
+    Delegates to ``fetch_metadata``, which bounds how long it waits for the lookup.
+    ``_latest_version`` reads the version out. A run started by
+    ``convert_paper`` is handed that script's lookup through
+    ``--metadata-handoff`` and does not call this.
 
     Assumes ``arxiv_id`` has already been validated to canonical form by
     ``validate_arxiv_id``. No zero-padding happens here.
     """
-    return fetch_metadata(arxiv_id, timeout=5)
+    return fetch_metadata(arxiv_id)
 
 
 def _latest_version(probe: MetadataFetch) -> Optional[str]:
     """The version string the probe reports, or ``None`` when it reports none.
 
-    The rest of this module reads ``None`` as "no usable answer from the API",
-    whether the request failed or the record carried no version tail.
+    The rest of this module reads ``None`` as "no usable answer from the
+    lookup", whether the lookup failed or the record carried no version.
     """
     return probe.metadata.version if probe.metadata else None
+
+
+def _has_cached_source(paper_dir: Path) -> bool:
+    """Whether a cached source tree stands behind the recorded revision.
+
+    The source is the artifact that recorded revision protects: the fetch step
+    deletes it, hand edits included, when the revision moves, and reuses it
+    without a download when it does not. A cached PDF answers nothing here.
+    The fetch step would still ask for the recorded revision's source, so a
+    revision that no longer exists would fail to download on every run while
+    the PDF alone kept the record alive.
+    """
+    source = paper_dir / "source"
+    return source.is_dir() and any(source.rglob("*.tex"))
+
+
+def _target_version(
+    paper_dir: Path, latest: Optional[str], *, pinned: bool, source: Optional[str]
+) -> Optional[str]:
+    """The revision this run should have on disk and record.
+
+    Normally ``latest``, the lookup's version. For an id given without a
+    revision (``pinned`` false), a sidecar recording a later revision of the
+    same id wins instead — but only when the DataCite fallback answered, since
+    only its record can trail what arXiv serves. An earlier run may already
+    hold the later revision, so going back to ``latest`` would delete the
+    cached source only to fetch the later one again once that record catches
+    up. A requested revision always wins, and ``None`` stays ``None``.
+    """
+    if pinned or latest is None:
+        return latest
+    if source != METADATA_SOURCE_DATACITE:
+        # Only the fallback's record can trail what arXiv serves. arXiv's own
+        # record is authoritative about its revisions, so a cached revision
+        # ahead of it is not a lag but a record left behind by something else —
+        # a hand edit, say — and letting it win would hold the paper there for
+        # as long as the file stayed.
+        return latest
+    if not _has_cached_source(paper_dir):
+        # With no cached source the record protects nothing, and a revision it
+        # names that no longer exists would be requested on every run and fail
+        # on every run. The lookup's version wins, and the run self-heals.
+        return latest
+    cached = _REVISION.fullmatch(_read_cached_version(paper_dir) or "")
+    looked_up = _REVISION.fullmatch(latest)
+    if (
+        cached
+        and looked_up
+        and cached.group(1) == looked_up.group(1)
+        and int(cached.group(2)) > int(looked_up.group(2))
+    ):
+        return cached.group(0)
+    return latest
 
 
 def _read_cached_version(paper_dir: Path) -> Optional[str]:
@@ -65,9 +136,12 @@ def _read_cached_version(paper_dir: Path) -> Optional[str]:
         return None
     try:
         data = json.loads(meta.read_text(encoding="utf-8"))
-        return data.get("version")
     except Exception:
         return None
+    version = data.get("version") if isinstance(data, dict) else None
+    # An earlier run wrote this file, but a hand edit can put anything in it,
+    # and every reader below treats the value as text.
+    return version if isinstance(version, str) else None
 
 
 def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) -> bool:
@@ -99,9 +173,9 @@ def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
             "the reason this warning states"
         )
     if probe.error is not None:
-        situation = f"could not read the arXiv record for {arxiv_id}: {probe.error}"
+        situation = f"no usable metadata record for {arxiv_id}: {probe.error}"
     else:
-        situation = f"the arXiv record for {arxiv_id} carried no version"
+        situation = f"the metadata record for {arxiv_id} carried no version"
     return (
         f"WARNING: {situation}\n"
         f"  Version drift was not checked, and {_METADATA_FILE} was not updated."
@@ -194,9 +268,9 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
 def _needs_refresh(paper_dir: Path, latest: Optional[str]) -> bool:
     """Decide whether cached artifacts should be re-fetched.
 
-    Returns True when the arXiv API reports a newer version than what
-    is recorded locally. Returns False (trust cache) when the API is
-    unreachable or the versions match.
+    Returns True when the metadata record reports a different version
+    than what is recorded locally. Returns False (trust cache) when the
+    lookup reports no version or the versions match.
     """
     if latest is None:
         return False
@@ -353,6 +427,7 @@ def main():
         default=Path("papers"),
         help="Output directory (default: ./papers)",
     )
+    add_metadata_handoff_option(parser)
     args = parser.parse_args()
 
     try:
@@ -376,8 +451,13 @@ def main():
     print()
 
     # Check for version drift before fetching
-    probe = _probe_metadata(args.arxiv_id)
-    latest = _latest_version(probe)
+    probe = resolve_metadata(args.arxiv_id, args.metadata_handoff, _probe_metadata)
+    latest = _target_version(
+        paper_dir,
+        _latest_version(probe),
+        pinned=_REVISION.fullmatch(args.arxiv_id) is not None,
+        source=probe.metadata.source if probe.metadata else None,
+    )
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:
         cached = _read_cached_version(paper_dir)
@@ -389,14 +469,19 @@ def main():
             print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
+    # Download the revision the record names, so the version the sidecar records
+    # is the one on disk even when the record trails what arXiv serves, as the
+    # DataCite fallback can. With no version, arXiv's latest is downloaded and
+    # nothing is recorded.
+    download_id = latest or args.arxiv_id
     has_source = fetch_source(
-        args.arxiv_id,
+        download_id,
         paper_dir,
         normalized_arxiv_id,
         refresh=refresh,
     )
     has_pdf = fetch_pdf(
-        args.arxiv_id,
+        download_id,
         paper_dir,
         normalized_arxiv_id,
         refresh=refresh,

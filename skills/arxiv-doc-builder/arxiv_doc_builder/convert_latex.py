@@ -25,7 +25,9 @@ try:
         METADATA_UNAVAILABLE,
         build_frontmatter,
         fetch_metadata,
+        add_metadata_handoff_option,
         format_unavailable_warning,
+        resolve_metadata,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -35,7 +37,9 @@ except ModuleNotFoundError as _exc:
         METADATA_UNAVAILABLE,
         build_frontmatter,
         fetch_metadata,
+        add_metadata_handoff_option,
         format_unavailable_warning,
+        resolve_metadata,
     )
 
 
@@ -310,18 +314,29 @@ def extract_title_from_latex(tex_file: Path) -> Optional[str]:
     return None
 
 
-def post_process_markdown(md_file: Path, arxiv_id: str, tex_file: Path):
-    """Post-process Markdown for better formatting."""
+def post_process_markdown(
+    md_file: Path,
+    arxiv_id: str,
+    tex_file: Path,
+    *,
+    metadata_handoff: Optional[Path] = None,
+) -> None:
+    """Post-process Markdown for better formatting.
+
+    ``metadata_handoff`` is a lookup already made for this paper, written by
+    ``convert_paper``. Without one, the record is looked up here.
+    """
     from datetime import datetime, timezone
 
     content = md_file.read_text(encoding="utf-8")
 
-    # A single arXiv fetch supplies the whole provenance frontmatter; the LaTeX
-    # \title of the converted file is only a fallback for the title, and only
-    # when the arXiv fetch did not provide one (offline / not found). Extracting
-    # it lazily avoids a needless file read on the common path. conversion_date
-    # is UTC-aware so the provenance stamp is unambiguous across environments.
-    fetched = fetch_metadata(arxiv_id)
+    # A single metadata record supplies the whole provenance frontmatter; the
+    # LaTeX \title of the converted file is only a fallback for the title, and
+    # only when the record did not provide one (lookup failed / no record).
+    # Extracting it lazily avoids a needless file read on the common path.
+    # conversion_date is UTC-aware so the provenance stamp is unambiguous
+    # across environments.
+    fetched = resolve_metadata(arxiv_id, metadata_handoff, fetch_metadata)
     meta = fetched.metadata
     if fetched.status == METADATA_UNAVAILABLE:
         print(
@@ -403,6 +418,7 @@ def main():
         type=Path,
         help="Specify the main .tex file directly (overrides auto-detection)",
     )
+    add_metadata_handoff_option(parser)
 
     args = parser.parse_args()
 
@@ -490,7 +506,12 @@ def main():
         sys.exit(1)
 
     # Post-process
-    post_process_markdown(output_md, args.arxiv_id, tex_file)
+    post_process_markdown(
+        output_md,
+        args.arxiv_id,
+        tex_file,
+        metadata_handoff=args.metadata_handoff,
+    )
 
     # Copy figures
     copy_figures(source_dir, output_md.parent)

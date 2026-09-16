@@ -30,6 +30,13 @@ import arxiv_doc_builder
 _SCRIPTS_DIR = Path(arxiv_doc_builder.__file__).parent
 
 
+def _run(args: list, cwd: Path) -> subprocess.CompletedProcess:
+    """Run the current interpreter with ``args`` in ``cwd``, capturing its text."""
+    return subprocess.run(
+        [sys.executable, *args], capture_output=True, text=True, cwd=str(cwd)
+    )
+
+
 @pytest.mark.parametrize(
     "script",
     ["fetch_paper.py", "convert_paper.py", "convert_latex.py"],
@@ -39,12 +46,7 @@ def test_validator_failure_exits_1_leaving_2_reserved(script, tmp_path):
     # (4-digit sequence on a post-2015 paper). Every CLI entry point
     # routes this through validate_arxiv_id at argparse time and must
     # exit 1, never 2 — exit 2 belongs to the ambiguous-main-tex channel.
-    result = subprocess.run(
-        [sys.executable, str(_SCRIPTS_DIR / script), "2506.1376"],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
-    )
+    result = _run([str(_SCRIPTS_DIR / script), "2506.1376"], tmp_path)
     assert result.returncode == 1, (
         f"{script}: validator failure exited {result.returncode}, "
         f"expected 1 (exit 2 is reserved for ambiguous main .tex).\n"
@@ -59,12 +61,7 @@ def test_convert_latex_default_path_normalizes_slash_for_legacy_id(tmp_path):
     # the directory name has an underscore, not a slash. We verify by
     # observing the "source directory not found" diagnostic, which
     # echoes the constructed path.
-    result = subprocess.run(
-        [sys.executable, str(_SCRIPTS_DIR / "convert_latex.py"), "hep-th/9901001"],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
-    )
+    result = _run([str(_SCRIPTS_DIR / "convert_latex.py"), "hep-th/9901001"], tmp_path)
     # Expected failure: no papers/ tree exists.
     assert result.returncode != 0
     combined = result.stdout + result.stderr
@@ -80,3 +77,62 @@ def test_convert_latex_default_path_normalizes_slash_for_legacy_id(tmp_path):
         "safe_arxiv_id must run before Path construction.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+@pytest.mark.parametrize(
+    "script",
+    ["fetch_paper.py", "convert_latex.py", "convert_pdf_simple.py"],
+)
+def test_the_metadata_handoff_option_is_not_advertised(script, tmp_path):
+    # The option carries convert_paper's lookup between its own steps. It is not
+    # an interface for users, so --help leaves it out.
+    result = _run([str(_SCRIPTS_DIR / script), "--help"], tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "--metadata-handoff" not in result.stdout
+
+
+def test_argparse_accepts_a_metadata_handoff_path_without_exit_2(tmp_path):
+    # The option converts its value with Path, which accepts any string argparse
+    # hands to it. A converter that rejected a value would make argparse exit 2,
+    # which
+    # convert_paper would report as an ambiguous main .tex. The run stops at the
+    # empty source directory, before the handoff is read.
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    result = _run(
+        [
+            str(_SCRIPTS_DIR / "convert_latex.py"),
+            "2409.03108",
+            "--source-dir",
+            str(source_dir),
+            "--metadata-handoff",
+            "not/a/real/handoff.json",
+        ],
+        tmp_path,
+    )
+    # No main .tex in an empty source directory is a generic failure.
+    assert result.returncode == 1, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+
+def test_convert_pdf_simple_passes_the_handoff_path_through(tmp_path):
+    # The PDF step runs under uv with its dependencies, so the forwarding is
+    # observed by replacing the converter inside a plain child interpreter.
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(b"%PDF-stub")
+    handoff = tmp_path / "handoff.json"
+    program = f"""
+import sys
+sys.path.insert(0, {str(_SCRIPTS_DIR)!r})
+import convert_pdf_simple
+
+def record(**kwargs):
+    print(repr(kwargs["arxiv_id"]), repr(str(kwargs["metadata_handoff"])))
+
+convert_pdf_simple.convert_pdf_to_markdown = record
+sys.argv = ["convert_pdf_simple.py", {str(pdf)!r}, "--arxiv-id", "2409.03108",
+            "--metadata-handoff", {str(handoff)!r}]
+convert_pdf_simple.main()
+"""
+    result = _run(["-c", program], tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"'2409.03108' {str(handoff)!r}"
