@@ -82,14 +82,23 @@ _DATACITE_URL = "https://api.datacite.org/dois/10.48550/arxiv."
 # lookup — both attempts together.
 METADATA_DEADLINE_SECONDS = 5.0
 
-# The share of that budget the arXiv attempt may spend before the DataCite
-# attempt gets what is left. The two differ in shape: over 15 measured
-# lookups arXiv answered in 0.04 s to 1.5 s except for one transient stall,
-# while DataCite took 1.1 s to 1.4 s every time. An even split therefore cuts
-# off no healthy arXiv response and still leaves the fallback well over the
-# time it needs, which matters because the fallback runs exactly when the
-# arXiv attempt spent its whole share.
+# The share of the legs' pool — ``_CHAIN_DEADLINE_SHARE`` of that budget, set
+# below — that the arXiv attempt may spend before the DataCite attempt gets the
+# rest of it. The two differ in shape: over 15 measured lookups arXiv answered
+# in 0.04 s to 1.5 s except for one transient stall, while DataCite took 1.1 s
+# to 1.4 s every time. An even split therefore cuts off no healthy arXiv
+# response and still leaves the fallback well over the time it needs — at the
+# default deadline the pool is 4.5 s and each leg may draw 2.25 s of it — which
+# matters because the fallback runs exactly when the arXiv attempt spent its
+# whole share.
 _ARXIV_DEADLINE_SHARE = 0.5
+
+# The share of the deadline the two legs together may spend. The rest is
+# headroom for the chain to compose its answer: both legs spending their whole
+# budgets would otherwise finish as the outer bound fires, and whichever won
+# that race would decide whether the caller learns what each source said or
+# only that the lookup ran out of time.
+_CHAIN_DEADLINE_SHARE = 0.9
 
 # The ``metadata_status`` frontmatter vocabulary. Anything that keeps a usable
 # record from being read gives ``unavailable``, and the warning says what did.
@@ -560,9 +569,11 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
     return MetadataFetch(METADATA_OK, metadata=record)
 
 
-def _datacite_http_cause(code: int, bare_id: str) -> str:
+def _datacite_http_cause(code: int, doi_id: str) -> str:
+    # ``doi_id`` is the id as the DOI spells it — the archive alone for a
+    # legacy id — which is not the same string as the caller's ``bare_id``.
     if code == 404:
-        return f"DataCite has no record for 10.48550/arXiv.{bare_id} (HTTP 404)"
+        return f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
     if code == 429:
         return "DataCite rate-limited the request (HTTP 429)"
     if 500 <= code <= 599:
@@ -670,12 +681,16 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     an outage, a malformed feed — which is what keeps a run that would
     otherwise record nothing supplied with a record.
 
-    The arXiv attempt may spend only ``_ARXIV_DEADLINE_SHARE`` of ``deadline``,
-    so the fallback still has time to answer. When both fail, the returned
-    cause names what each of them said.
+    The two attempts draw on ``_CHAIN_DEADLINE_SHARE`` of ``deadline`` and no
+    more, and the arXiv attempt may spend only ``_ARXIV_DEADLINE_SHARE`` of
+    that pool. The first share leaves the fallback time to answer; the second
+    leaves this function time to compose its answer before the caller's own
+    bound fires, which is what keeps the cause below from being replaced by a
+    bare timeout. When both fail, that cause names what each of them said.
     """
     started = time.monotonic()
-    share = deadline * _ARXIV_DEADLINE_SHARE
+    pool = deadline * _CHAIN_DEADLINE_SHARE
+    share = pool * _ARXIV_DEADLINE_SHARE
     # Bounded in wall time, not just per socket operation: an arXiv that
     # trickles its response — the shape a rate-limited service often takes —
     # would otherwise spend the whole deadline and leave the fallback, which
@@ -688,7 +703,7 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     if primary.status == METADATA_OK:
         return primary
 
-    remaining = deadline - (time.monotonic() - started)
+    remaining = pool - (time.monotonic() - started)
     if remaining <= 0:
         return _unavailable(
             f"arXiv: {primary.failure_cause}; no time left to ask DataCite"
@@ -725,10 +740,10 @@ def fetch_metadata(
     ``timeout`` bounds each socket operation rather than the request, a response
     that trickles in can outlast it many times over, and host resolution runs
     outside it, so the request runs in a daemon thread that this call stops
-    waiting for. The thread passes the same value as the socket timeout, so a
-    request that stalls outright still ends on its own; one that keeps trickling
-    can outlive the call, and being a daemon keeps it from holding the process
-    open.
+    waiting for. Each leg passes its own share of ``deadline`` as that socket
+    timeout, so a request that stalls outright still ends on its own; one that
+    keeps trickling can outlive the call, and being a daemon keeps it from
+    holding the process open.
 
     The record comes from arXiv's own API, or from DataCite when arXiv does not
     answer with one; ``ArxivMetadata.source`` says which, and ``_lookup``
@@ -1007,15 +1022,19 @@ def build_frontmatter(
             f"id can carry, and the only one a document with an id cannot"
         )
     source = meta.source if meta is not None else None
-    if (metadata_status == METADATA_OK) != (source in METADATA_SOURCES):
-        # The document tells a consumer that ``metadata_source`` is null
-        # exactly when the status is not ``ok``, so the two are checked against
-        # each other here rather than emitted side by side and left to agree.
+    # The document tells a consumer that ``metadata_source`` is null exactly
+    # when the status is not ``ok``, so the status names which values the key
+    # may carry and the pair is checked against that, rather than emitted side
+    # by side and left to agree. The admissible set is stated whole instead of
+    # as the pairings that are wrong: ``source`` is an arbitrary string, so a
+    # check written case by case passes whatever it did not enumerate.
+    admissible = METADATA_SOURCES if metadata_status == METADATA_OK else (None,)
+    if source not in admissible:
         raise ValueError(
             f"metadata_status {metadata_status!r} does not match "
             f"metadata_source {source!r}. {METADATA_OK!r} is the only status "
-            f"that names a source, and the source must be one of "
-            f"{METADATA_SOURCES}"
+            f"that names a source, which must then be one of "
+            f"{METADATA_SOURCES}; every other status requires None"
         )
     m = meta or ArxivMetadata()
     # Normalize every emitted text scalar here, so the block is clean and valid

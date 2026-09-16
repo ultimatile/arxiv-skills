@@ -150,6 +150,19 @@ def status_of(document: Path) -> str:
     raise AssertionError(f"no metadata_status line in {document}")
 
 
+def seed_cached_source(paper_dir: Path) -> None:
+    """Put a cached LaTeX source under ``paper_dir``.
+
+    A recorded revision outranks the one a lookup reports only while a source
+    is cached, since that material is what the record speaks for. A test of
+    that rule therefore has to seed one, and one that seeds none is testing the
+    opposite branch.
+    """
+    source = paper_dir / "source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "main.tex").write_text("x", encoding="utf-8")
+
+
 def refuse_lookup(_arxiv_id: str) -> MetadataFetch:
     """A ``fetch_metadata`` stand-in for steps that must not look anything up."""
     raise AssertionError("a step given a metadata handoff looked the record up")

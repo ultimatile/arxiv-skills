@@ -471,7 +471,7 @@ def main():
 
     # Download the revision the record names, so the version the sidecar records
     # is the one on disk even when the record trails what arXiv serves, as the
-    # DataCite fallback's can. With no version, arXiv's latest is downloaded and
+    # DataCite fallback can. With no version, arXiv's latest is downloaded and
     # nothing is recorded.
     download_id = latest or args.arxiv_id
     has_source = fetch_source(

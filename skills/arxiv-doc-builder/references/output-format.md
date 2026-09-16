@@ -31,12 +31,15 @@ answer with a record. The two records do not carry the same fields, so a null
 is read against the one that answered:
 
 - `ok`. A record was read — `metadata_source` names which one — and a null
-  field is a **confirmed absence from that record**. Under `arxiv` a null `journal` or
-  `doi` supports a "preprint, not published yet" reading. Under `datacite` a
+  field is a **confirmed absence from that record**. Under `arxiv` a null
+  `journal` and a null `doi` together support a "preprint, not published yet"
+  reading. Either one alone does not: an author can register a DOI without
+  entering a journal reference, or the reverse. Under `datacite` a
   null `journal` says nothing of the sort: that record has no journal-reference
   field at all.
 - `unavailable`. Neither source supplied a record. Both attempts failed, or the
-  budget ran out, or DataCite has no record for the id, or the id names a
+  time limit the lookup runs under ran out, or DataCite has no record for the
+  id, or the id names a
   revision later than the latest one DataCite lists. A null field is therefore
   **unknown** rather than a confirmed absence. The conversion names what each
   source said on stderr as it runs.
@@ -58,11 +61,11 @@ primary_category: "cs.AI"
 categories:
   - "cs.AI"
   - "cs.CL"
-doi: "10.1145/1234567.1234568"   # or bare `doi:` (null); see metadata_status
-journal: "Phys. Rev. D 76, 013009 (2007)"   # null unless arXiv's record answered
+doi: "10.1145/1234567.1234568"   # or bare `doi:` (null)
+journal: "Phys. Rev. D 76, 013009 (2007)"   # or null
 source_type: "latex"             # or "pdf"
 metadata_status: "ok"            # or "unavailable" / "not_requested"
-metadata_source: "arxiv"         # or "datacite"; null when no record was read
+metadata_source: "arxiv"         # or "datacite", or null
 conversion_date: "2025-12-08T10:00:00+00:00"
 abstract: |-
   Single-paragraph abstract, whitespace-normalized.
@@ -77,10 +80,14 @@ Field notes:
   while every other record-derived field still describes the record, which
   follows the latest revision. DataCite lists a new revision a few hours after
   arXiv announces it, so under `metadata_source: "datacite"` the record can
-  trail what arXiv serves. When `.arxiv-fetch.json` already records a later
-  revision of an id given without a version, the fetch step keeps and converts
-  that revision, and `version` still names the record's older one. The
-  revision on disk is the one `.arxiv-fetch.json` records.
+  trail what arXiv serves. That lag is the one case a recorded revision
+  outranks the one the record names, and all four of its conditions hold
+  together: DataCite answered, the id was given without a version, a source is
+  cached on disk, and `.arxiv-fetch.json` already records a later revision of
+  the same paper. The fetch step then keeps and converts the recorded revision,
+  and `version` still names the record's older one; the revision on disk is the
+  one `.arxiv-fetch.json` records. When arXiv answered, the revision it names
+  is authoritative and a later recorded one is replaced.
   A withdrawn revision is still the paper's latest: `version` names it, the
   abstract reads as the withdrawal notice, and `published` stays the first
   revision's date.
@@ -92,12 +99,14 @@ Field notes:
   revision.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
-- `doi` holds the DOIs the record lists as versions of the paper, separated by
-  spaces and spelled as the record stores them, except that unprintable
-  characters are dropped and whitespace is collapsed and trimmed.
-  Resolving a
-  DOI that the record does not carry is the arxiv-lookup
-  skill's job, not this converter's.
+- `doi` holds the published DOIs the answering record carries, spelled as that
+  record stores them, except that unprintable characters are dropped and
+  whitespace is collapsed and trimmed. The two records carry different numbers
+  of them. Under `arxiv` the key holds at most the one DOI the author
+  registered for the paper. Under `datacite` it holds every DOI that record
+  lists as a version of the paper, separated by spaces, so the value can name
+  several. Resolving a DOI the answering record does not carry is the
+  arxiv-lookup skill's job, not this converter's.
 - `journal` is the paper's journal reference, as the author entered it on
   arXiv. Only arXiv's record carries one, so the key is null under
   `metadata_source: "datacite"` whatever the paper's publication history.

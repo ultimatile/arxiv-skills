@@ -8,7 +8,7 @@ These drive `main()` with the lookup and both downloads replaced.
 import sys
 
 import pytest
-from conftest import PROBE_ERROR, PROBE_VERSION, refuse_lookup
+from conftest import PROBE_ERROR, PROBE_VERSION, refuse_lookup, seed_cached_source
 
 from arxiv_doc_builder import fetch_paper
 from arxiv_doc_builder.arxiv_metadata import (
@@ -86,10 +86,7 @@ def test_a_record_of_a_later_revision_is_kept_while_the_lookup_lags(
         metadata=ArxivMetadata(version=PROBE_VERSION, source=METADATA_SOURCE_DATACITE),
     )
     paper_dir = tmp_path / "2409.03108"
-    (paper_dir / "source").mkdir(parents=True)
-    # The recorded revision speaks for this material; without it the lookup's
-    # version would win instead.
-    (paper_dir / "source" / "main.tex").write_text("x", encoding="utf-8")
+    seed_cached_source(paper_dir)
     later = PROBE_VERSION.rsplit("v", 1)[0] + "v99"
     fetch_paper._write_cached_version(paper_dir, later)
     calls: list[tuple[str, bool]] = []

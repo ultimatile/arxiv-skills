@@ -8,7 +8,7 @@ write helpers underneath are covered too. Nothing here touches the network.
 
 import pytest
 
-from conftest import PROBE_ERROR, PROBE_VERSION
+from conftest import PROBE_ERROR, PROBE_VERSION, seed_cached_source
 
 from arxiv_doc_builder.arxiv_metadata import (
     METADATA_SOURCE_ARXIV,
@@ -142,8 +142,7 @@ def test_target_version_keeps_a_later_recorded_revision_of_an_unpinned_id(
     # The recorded revision speaks for material on disk, so these cases seed
     # some; the case without it is its own test below. They read as the
     # fallback answering, the only source whose record can trail arXiv.
-    (tmp_path / "source").mkdir()
-    (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
+    seed_cached_source(tmp_path)
     if cached is not None:
         _write_cached_version(tmp_path, cached)
     target_version = _target_version(
@@ -157,8 +156,7 @@ def test_a_record_ahead_of_arxivs_own_answer_does_not_win(tmp_path):
     # revision ahead of it is not a lag. Letting it win would hold the paper
     # at that revision for as long as the file stayed — no lookup could move
     # it, since the comparison would keep going the same way.
-    (tmp_path / "source").mkdir()
-    (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
+    seed_cached_source(tmp_path)
     _write_cached_version(tmp_path, "2409.03108v99")
 
     from_arxiv = _target_version(
@@ -187,8 +185,7 @@ def test_a_record_without_a_cached_source_cannot_outvote_the_lookup(tmp_path):
     assert _target_version(tmp_path, "2409.03108v2", **lagging) == "2409.03108v2"
 
     # A cached source is what the record speaks for, so it wins there.
-    (tmp_path / "source").mkdir()
-    (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
+    seed_cached_source(tmp_path)
     assert _target_version(tmp_path, "2409.03108v2", **lagging) == "2409.03108v99"
 
 

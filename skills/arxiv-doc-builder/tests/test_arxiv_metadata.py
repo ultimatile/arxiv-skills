@@ -1035,16 +1035,17 @@ def test_the_deadline_bounds_how_long_the_call_waits(transport):
 
     transport(slow)
     started = time.monotonic()
-    result = fetch_metadata("2409.03108", deadline=0.2)
+    result = fetch_metadata("2409.03108", deadline=0.5)
     elapsed = time.monotonic() - started
 
     assert result.status == METADATA_UNAVAILABLE
-    # Which bound fires is a race the contract does not settle: each leg is
-    # bounded too, so the chain usually reports both legs' overruns just before
-    # the outer one would. What is promised is that a budget ran out and the
-    # call did not wait the transport out.
-    assert "budget" in result.failure_cause
     assert elapsed < 1.5
+    # The legs together may spend only _CHAIN_DEADLINE_SHARE of the deadline,
+    # so the chain composes its answer inside the remaining headroom and the
+    # caller learns what each source said. Without that headroom the outer
+    # bound wins the race and replaces both causes with its own timeout.
+    assert result.failure_cause.startswith("arXiv: ")
+    assert "DataCite: the DataCite lookup exceeded" in result.failure_cause
 
 
 def test_the_process_exits_without_waiting_for_an_abandoned_lookup():
@@ -1106,9 +1107,23 @@ def test_each_leg_is_given_its_share_of_the_deadline_as_a_socket_timeout(monkeyp
 
     monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
     fetch_metadata("2409.03108", deadline=0.75)
-    assert timeouts[0] == 0.75 * arxiv_metadata._ARXIV_DEADLINE_SHARE
-    assert 0 < timeouts[1] <= 0.75
+    pool = 0.75 * arxiv_metadata._CHAIN_DEADLINE_SHARE
+    assert timeouts[0] == pool * arxiv_metadata._ARXIV_DEADLINE_SHARE
+    # Neither leg is handed the deadline itself: both draw on a pool smaller
+    # than it, which leaves the chain room to compose its answer before the
+    # outer bound fires. The legs run in sequence, so these budgets bound what
+    # each may spend, not what the two spend together — the pool bounds that.
+    assert 0 < timeouts[1] <= pool
     assert len(timeouts) == 2
+
+
+def test_the_legs_may_not_spend_the_whole_deadline_between_them():
+    # The behavioural test above reports the rule only when it wins a race it
+    # is not guaranteed to win: let the legs have the whole deadline and the
+    # chain finishes just as the outer bound fires, so which answer reaches the
+    # caller is a coin toss. The rule that settles it is this one, and a
+    # strictly smaller pool is what it says, so it is asserted on its own too.
+    assert 0 < arxiv_metadata._CHAIN_DEADLINE_SHARE < 1
 
 
 @pytest.mark.parametrize(
@@ -1369,13 +1384,24 @@ def test_ok_needs_a_record_naming_one_of_the_two_sources(source):
 
 
 @pytest.mark.parametrize("status", [METADATA_UNAVAILABLE, METADATA_NOT_REQUESTED])
-def test_a_status_other_than_ok_cannot_carry_a_record_naming_a_source(status):
+@pytest.mark.parametrize(
+    "source",
+    [arxiv_metadata.METADATA_SOURCE_ARXIV, "bogus"],
+    ids=["in-the-vocabulary", "outside-it"],
+)
+def test_a_status_other_than_ok_cannot_carry_a_record_naming_a_source(status, source):
     # `metadata_source` is what tells a consumer which record a null field was
     # absent from. Emitting one beside a status that says no usable record was
-    # read would claim a record answered when none did.
+    # read would claim a record answered when none did — and a token outside
+    # the vocabulary claims it as loudly as a valid one, so null is the only
+    # value these statuses admit.
     arxiv_id = None if status == METADATA_NOT_REQUESTED else "2606.09995"
     with pytest.raises(ValueError):
-        _fm(_FULL, arxiv_id=arxiv_id, metadata_status=status)
+        _fm(
+            ArxivMetadata(title="T", source=source),
+            arxiv_id=arxiv_id,
+            metadata_status=status,
+        )
 
 
 def test_unknown_status_token_is_rejected_rather_than_rendered():
