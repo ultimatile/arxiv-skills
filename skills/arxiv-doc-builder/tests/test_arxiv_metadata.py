@@ -1309,9 +1309,25 @@ def test_every_status_token_round_trips_into_the_document(status, arxiv_id):
     # every other pairing. Taking the ids from METADATA_STATUSES while
     # spelling the cases out means a token added there and not here leaves the
     # two lengths unequal, and pytest fails at collection.
-    parsed = _parse(_fm(_FULL, arxiv_id=arxiv_id, metadata_status=status))
+    # Only `ok` may carry a record that names a source, so the other tokens get
+    # a record with none — which is what they mean.
+    record = _FULL if status == METADATA_OK else ArxivMetadata(title=_FULL.title)
+    parsed = _parse(_fm(record, arxiv_id=arxiv_id, metadata_status=status))
     assert parsed["metadata_status"] == status
+    assert parsed["metadata_source"] == (
+        arxiv_metadata.METADATA_SOURCE_ARXIV if status == METADATA_OK else None
+    )
     assert set(parsed.keys()) == FRONTMATTER_KEYS
+
+
+@pytest.mark.parametrize("status", [METADATA_UNAVAILABLE, METADATA_NOT_REQUESTED])
+def test_a_status_other_than_ok_cannot_carry_a_record_naming_a_source(status):
+    # `metadata_source` is what tells a consumer which record a null field was
+    # absent from. Emitting one beside a status that says no usable record was
+    # read would claim a record answered when none did.
+    arxiv_id = None if status == METADATA_NOT_REQUESTED else "2606.09995"
+    with pytest.raises(ValueError):
+        _fm(_FULL, arxiv_id=arxiv_id, metadata_status=status)
 
 
 def test_unknown_status_token_is_rejected_rather_than_rendered():

@@ -995,6 +995,15 @@ def build_frontmatter(
             f"{METADATA_NOT_REQUESTED!r} is the only status a document with no "
             f"id can carry, and the only one a document with an id cannot"
         )
+    if metadata_status != METADATA_OK and meta is not None and meta.source is not None:
+        # The document tells a consumer that `metadata_source` is null unless
+        # the status is `ok`, so a record naming a source under another status
+        # would contradict the surface it is written onto.
+        raise ValueError(
+            f"metadata_status {metadata_status!r} does not match a record read "
+            f"from {meta.source!r}. Only {METADATA_OK!r} carries a source, since "
+            f"the other tokens say no usable record was read"
+        )
     m = meta or ArxivMetadata()
     # Normalize every emitted text scalar here, so the block is clean and valid
     # regardless of how the metadata was built — the PDF fallback path

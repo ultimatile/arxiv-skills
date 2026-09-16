@@ -12,7 +12,7 @@ Automatically converts arXiv papers into structured Markdown documentation for i
 This skill automatically:
 
 1. **Fetches paper materials from arXiv**
-   - Attempts to download LaTeX source (preferred) and PDF (which files already downloaded are reused is described under How It Works)
+   - Attempts to download LaTeX source (preferred) and PDF, reusing files already downloaded on the terms described under How It Works
    - Handles all HTTP requests, extraction, and directory setup
 
 2. **Converts LaTeX source to structured Markdown** (happy path)
@@ -71,6 +71,8 @@ The metadata lookup, downloads (curl), file extraction (tar), and directory crea
 ### Re-download of cached files
 
 When the metadata lookup reports a version that `.arxiv-fetch.json` does not already record, the fetch step does not reuse the cached files. It deletes the cached `source/` directory, including any edit made to it, and downloads the source and the PDF again. A failed PDF download also removes the cached PDF.
+
+One case is exempt. When the lookup fell back to DataCite and reported a revision *older* than the one `.arxiv-fetch.json` already records for the same paper, and that source is still on disk, the fetch step keeps it and the record stays where it is — DataCite lists a new revision a few hours after arXiv announces it, and going back would delete a source the record already accounts for.
 
 An edit made to the source, such as a troubleshooting fix below, survives a run only when the fetch step's output shows `✓ Source already present ...`. Otherwise the output shows `Fetching source from ...`, and the summary the fetch step prints at its end tells which of two things happened:
 
