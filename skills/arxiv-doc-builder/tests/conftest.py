@@ -27,6 +27,30 @@ _NETWORK_GUARD = """\
 import os
 import urllib.request
 
+# Chain to the sitecustomize this one displaces. Python imports only the first
+# on sys.path, so an environment that ships its own would otherwise lose it in
+# every Python process a test starts, and those processes would behave
+# differently under pytest than outside it. PathFinder is asked rather than
+# importlib.util.find_spec, which would answer with this half-imported module.
+def _chain_displaced_sitecustomize():
+    import sys
+    from importlib.machinery import PathFinder
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    rest = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != here]
+    spec = PathFinder.find_spec("sitecustomize", rest)
+    if spec is not None and spec.loader is not None:
+        from importlib.util import module_from_spec
+
+        spec.loader.exec_module(module_from_spec(spec))
+
+
+try:
+    _chain_displaced_sitecustomize()
+except Exception:
+    # The guard itself must survive whatever the displaced module does.
+    pass
+
 
 def _refuse(url, *args, **kwargs):
     target = getattr(url, "full_url", url)
