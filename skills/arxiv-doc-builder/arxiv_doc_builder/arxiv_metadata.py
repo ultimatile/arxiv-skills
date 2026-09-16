@@ -505,6 +505,10 @@ def _arxiv_error_cause(exc: urllib.error.HTTPError) -> str:
         entry = ET.parse(exc).find(".//atom:entry", _NS)
     except Exception:
         entry = None
+    finally:
+        # An HTTPError is an open response holding a socket, and urlopen raised
+        # it before any ``with`` could bind it.
+        exc.close()
     if entry is not None and _is_error_entry(entry):
         summary = _normalize(_atom_text(entry, "atom:summary"))
         if summary:
@@ -569,7 +573,9 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
         with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
-        # HTTPError subclasses URLError, so it must be caught first.
+        # HTTPError subclasses URLError, so it must be caught first. It is also
+        # an open response, which urlopen raised before any ``with`` bound it.
+        exc.close()
         return _unavailable(_datacite_http_cause(exc.code, doi_id))
     except urllib.error.URLError as exc:
         return _unavailable(f"URLError: {exc.reason}")
@@ -601,6 +607,48 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     return MetadataFetch(METADATA_OK, metadata=_parse_record(canonical, attributes))
 
 
+def _bounded(
+    call: Callable[[], MetadataFetch], budget: float, what: str
+) -> MetadataFetch:
+    """``call``'s outcome, or ``unavailable`` once ``budget`` seconds have passed.
+
+    ``urlopen``'s own ``timeout`` bounds each socket operation rather than the
+    request: a response that trickles in can outlast it many times over, and
+    host resolution runs outside it entirely. Only a thread the caller stops
+    waiting for bounds wall time, so that is what this does. The thread is a
+    daemon, so a request abandoned here cannot hold the process open, and
+    every failure — one that cannot start, one that ends without a result —
+    comes back as ``unavailable`` rather than propagating.
+    """
+    outcome: list[MetadataFetch] = []
+
+    def run() -> None:
+        try:
+            outcome.append(call())
+        except Exception as exc:
+            outcome.append(_unavailable(_cause(exc)))
+
+    try:
+        worker = threading.Thread(
+            target=run, name=f"arxiv-metadata-{what}", daemon=True
+        )
+        worker.start()
+    except Exception as exc:
+        return _unavailable(_cause(exc))
+    worker.join(budget)
+    # Read the thread's state before the outcome. A result the worker appends
+    # after the join timed out but before this read is still returned below,
+    # since the outcome is checked first.
+    finished = not worker.is_alive()
+    if outcome:
+        return outcome[0]
+    if not finished:
+        return _unavailable(f"{what} exceeded the {budget:g} s budget")
+    # The worker ended without appending, which means an exception escaped
+    # run(): a BaseException, or an exception raised inside its handler.
+    return _unavailable(f"{what} ended without a result")
+
+
 def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     """arXiv's record, or DataCite's when arXiv does not supply one.
 
@@ -616,14 +664,16 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     cause names what each of them said.
     """
     started = time.monotonic()
-    try:
-        primary = _lookup_arxiv(arxiv_id, deadline * _ARXIV_DEADLINE_SHARE)
-    except Exception as exc:
-        # An exception the arXiv leg does not classify must not take the
-        # fallback with it. ``http.client``'s HTTPException subclasses — a
-        # connection dropped mid-response, say — are not ``OSError``, and a
-        # dropped response is exactly when DataCite should answer.
-        primary = _unavailable(_cause(exc))
+    share = deadline * _ARXIV_DEADLINE_SHARE
+    # Bounded in wall time, not just per socket operation: an arXiv that
+    # trickles its response — the shape a rate-limited service often takes —
+    # would otherwise spend the whole deadline and leave the fallback, which
+    # exists for exactly that case, unasked. The helper also absorbs whatever
+    # the leg does not classify, so an ``http.client`` exception cannot take
+    # the fallback with it either.
+    primary = _bounded(
+        lambda: _lookup_arxiv(arxiv_id, share), share, "the arXiv lookup"
+    )
     if primary.status == METADATA_OK:
         return primary
 
@@ -632,13 +682,12 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
         return _unavailable(
             f"arXiv: {primary.failure_cause}; no time left to ask DataCite"
         )
-    try:
-        fallback = _lookup_datacite(arxiv_id, remaining)
-    except Exception as exc:
-        # Guarded like the arXiv leg, and for the same reason. Letting the
-        # exception escape would report it alone, dropping what arXiv said —
-        # the one thing a two-source lookup exists to tell the user.
-        fallback = _unavailable(_cause(exc))
+    # Bounded and guarded like the arXiv leg, and for the same reasons. An
+    # exception escaping here would report itself alone, dropping what arXiv
+    # said — the one thing a two-source lookup exists to tell the user.
+    fallback = _bounded(
+        lambda: _lookup_datacite(arxiv_id, remaining), remaining, "the DataCite lookup"
+    )
     if fallback.status == METADATA_OK:
         return fallback
     return _unavailable(
@@ -695,31 +744,7 @@ def fetch_metadata(
             f"threading.TIMEOUT_MAX ({threading.TIMEOUT_MAX:g}), got {deadline!r}"
         )
 
-    outcome: list[MetadataFetch] = []
-
-    def run() -> None:
-        try:
-            outcome.append(_lookup(arxiv_id, deadline))
-        except Exception as exc:
-            outcome.append(_unavailable(_cause(exc)))
-
-    try:
-        worker = threading.Thread(target=run, name="arxiv-metadata-lookup", daemon=True)
-        worker.start()
-    except Exception as exc:
-        return _unavailable(_cause(exc))
-    worker.join(deadline)
-    # Read the thread's state before the outcome. A result the worker appends
-    # after the join timed out but before this read is still returned below,
-    # since the outcome is checked first.
-    finished = not worker.is_alive()
-    if outcome:
-        return outcome[0]
-    if not finished:
-        return _unavailable(f"metadata lookup exceeded the {deadline:g} s budget")
-    # The worker ended without appending, which means an exception escaped
-    # run(): a BaseException, or an exception raised inside its handler.
-    return _unavailable("metadata lookup ended without a result")
+    return _bounded(lambda: _lookup(arxiv_id, deadline), deadline, "metadata lookup")
 
 
 _HANDOFF_SCALARS = (
@@ -760,6 +785,15 @@ def _handoff_metadata(value: object) -> Optional[ArxivMetadata]:
     for key in _HANDOFF_SCALARS:
         if value[key] is not None and not isinstance(value[key], str):
             raise ValueError(f"metadata field {key!r} is not a string or null")
+    # The one field with a closed vocabulary. It reaches the document as
+    # ``metadata_source``, which ``references/output-format.md`` tells a
+    # consumer is one of these tokens, so a handoff naming anything else is
+    # rejected like any other field of the wrong shape.
+    if value["source"] is not None and value["source"] not in METADATA_SOURCES:
+        raise ValueError(
+            f"metadata field 'source' is {value['source']!r}, not one of "
+            f"{METADATA_SOURCES}"
+        )
     for key in _HANDOFF_LISTS:
         items = value[key]
         if not isinstance(items, list) or not all(isinstance(i, str) for i in items):

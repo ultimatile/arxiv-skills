@@ -649,6 +649,47 @@ def test_both_requests_name_this_client(monkeypatch):
     assert agents == [arxiv_metadata._USER_AGENT, arxiv_metadata._USER_AGENT]
 
 
+def test_a_trickling_arxiv_leg_leaves_the_fallback_its_time(transport):
+    # urlopen's timeout bounds each socket operation, not the request, so a
+    # response arriving in slow pieces — what a rate-limited service often
+    # does — would spend the whole deadline and the fallback would never be
+    # asked, in exactly the case the fallback was added for.
+    def trickle():
+        time.sleep(1.0)
+        return io.BytesIO(_ATOM_ENTRY)
+
+    transport(_record("2409.03108"), arxiv=trickle)
+    started = time.monotonic()
+    result = fetch_metadata("2409.03108", deadline=0.4)
+    elapsed = time.monotonic() - started
+
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+    assert elapsed < 0.9, "the arXiv leg was abandoned, not waited out"
+
+
+def test_an_error_response_is_closed_on_each_leg(transport):
+    # An HTTPError is an open response holding a socket, and urlopen raises it
+    # before any `with` can bind it, so each leg closes it by hand.
+    from email.message import Message
+
+    arxiv_body = io.BytesIO(_ATOM_ERROR_ENTRY)
+    datacite_body = io.BytesIO(b"{}")
+    transport(
+        urllib.error.HTTPError(
+            arxiv_metadata._DATACITE_URL, 404, "Not Found", Message(), datacite_body
+        ),
+        arxiv=urllib.error.HTTPError(
+            arxiv_metadata._ARXIV_API_URL, 400, "Bad Request", Message(), arxiv_body
+        ),
+    )
+    fetch_metadata("2606.09995")
+
+    assert arxiv_body.closed
+    assert datacite_body.closed
+
+
 def test_an_unclassified_datacite_failure_keeps_the_arxiv_cause(transport):
     # The mirror image of the arXiv leg's guard: an exception DataCite's leg
     # does not classify must not report itself alone, dropping what arXiv said.
@@ -961,7 +1002,11 @@ def test_the_deadline_bounds_how_long_the_call_waits(transport):
     elapsed = time.monotonic() - started
 
     assert result.status == METADATA_UNAVAILABLE
-    assert result.error == "metadata lookup exceeded the 0.2 s budget"
+    # Which bound fires is a race the contract does not settle: each leg is
+    # bounded too, so the chain usually reports both legs' overruns just before
+    # the outer one would. What is promised is that a budget ran out and the
+    # call did not wait the transport out.
+    assert "budget" in result.failure_cause
     assert elapsed < 1.5
 
 
@@ -1146,6 +1191,7 @@ def _with_metadata(**fields) -> dict:
         _with_metadata(authors=["A", 1]),
         _with_metadata(title=7),
         _with_metadata(title=True),
+        _with_metadata(source="bogus"),
         {
             **_handoff(),
             "fetch": {
@@ -1169,6 +1215,7 @@ def _with_metadata(**fields) -> dict:
         "authors-with-a-number",
         "title-a-number",
         "title-a-bool",
+        "source-outside-the-vocabulary",
         "unknown-metadata-key",
     ],
 )
