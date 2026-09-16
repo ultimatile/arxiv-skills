@@ -574,6 +574,22 @@ def test_a_requested_revision_is_recorded_and_looked_up_by_the_bare_id(
     assert result.metadata.version == f"2409.03108v{revision}"
 
 
+def test_the_arxiv_request_keeps_a_requested_revision(transport):
+    # The two legs treat a pinned id oppositely, which is why the frontmatter
+    # documents them apart. DataCite holds one record per paper, so the test
+    # above asks it by the bare id and the record follows the latest revision.
+    # arXiv answers per revision, so it is asked for the one requested and its
+    # record describes that revision rather than the paper's latest.
+    feed = _ATOM_ENTRY.replace(b"2606.09995v2", b"2606.09995v1")
+    requested = transport(b"unused", arxiv=feed)
+    result = fetch_metadata("2606.09995v1")
+
+    assert requested == [arxiv_metadata._ARXIV_API_URL + "?id_list=2606.09995v1"]
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.version == "2606.09995v1"
+
+
 @pytest.mark.parametrize(
     ("arxiv_id", "doi_id"),
     [
