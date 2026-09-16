@@ -67,6 +67,20 @@ def test_read_corrupt_file(tmp_path):
     assert _read_cached_version(tmp_path) is None
 
 
+@pytest.mark.parametrize(
+    "content",
+    ['{"version": 2}', '{"version": null}', '["2409.03108v2"]'],
+    ids=["number", "null", "not-an-object"],
+)
+def test_a_version_that_is_not_text_reads_as_absent(tmp_path, content):
+    # The readers downstream match this value against a pattern, which raises
+    # on a non-string. A hand-edited sidecar must not end the run.
+    (tmp_path / _METADATA_FILE).write_text(content, encoding="utf-8")
+    assert _read_cached_version(tmp_path) is None
+    assert _needs_refresh(tmp_path, "2409.03108v2") is True
+    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
+
+
 def test_write_overwrites(tmp_path):
     """Second write overwrites the first."""
     _write_cached_version(tmp_path, "2409.03108v1")
@@ -98,7 +112,7 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
         # A record of another paper, or of a different spelling of the id, says
         # nothing about this lookup's revision.
         ("2409.03109v3", "2409.03108v2", False, "2409.03108v2"),
-        ("math/0309136v3", "math.GT/0309136v2", False, "math.GT/0309136v2"),
+        ("math/0309136v3", "math/0309136v2", False, "math/0309136v3"),
         ("2409.03108v3", None, False, None),
     ],
     ids=[
@@ -109,7 +123,7 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
         "record-newer-numerically",
         "pinned-overrides-newer-record",
         "record-of-another-paper",
-        "record-of-another-spelling",
+        "legacy-record-newer",
         "no-version-from-lookup",
     ],
 )

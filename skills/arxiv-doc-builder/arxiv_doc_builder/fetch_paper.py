@@ -108,9 +108,12 @@ def _read_cached_version(paper_dir: Path) -> Optional[str]:
         return None
     try:
         data = json.loads(meta.read_text(encoding="utf-8"))
-        return data.get("version")
     except Exception:
         return None
+    version = data.get("version") if isinstance(data, dict) else None
+    # An earlier run wrote this file, but a hand edit can put anything in it,
+    # and every reader below treats the value as text.
+    return version if isinstance(version, str) else None
 
 
 def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) -> bool:

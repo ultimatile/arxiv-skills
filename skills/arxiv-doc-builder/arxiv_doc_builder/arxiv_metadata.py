@@ -540,7 +540,12 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
             f"{arxiv_id} is later than v{max(submitted)}, the latest revision "
             f"DataCite lists for {bare_id}"
         )
-    return MetadataFetch(METADATA_OK, metadata=_parse_record(arxiv_id, attributes))
+    # Parsed under the id arXiv itself uses — the archive alone, without the
+    # subject class — so both sources spell ``version`` the same way. Two
+    # spellings would read as two papers at the version-drift check, which
+    # deletes the cached source and downloads it again on every swing.
+    canonical = doi_id if requested is None else f"{doi_id}v{requested}"
+    return MetadataFetch(METADATA_OK, metadata=_parse_record(canonical, attributes))
 
 
 def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
@@ -558,7 +563,14 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     cause names what each of them said.
     """
     started = time.monotonic()
-    primary = _lookup_arxiv(arxiv_id, deadline * _ARXIV_DEADLINE_SHARE)
+    try:
+        primary = _lookup_arxiv(arxiv_id, deadline * _ARXIV_DEADLINE_SHARE)
+    except Exception as exc:
+        # An exception the arXiv leg does not classify must not take the
+        # fallback with it. ``http.client``'s HTTPException subclasses — a
+        # connection dropped mid-response, say — are not ``OSError``, and a
+        # dropped response is exactly when DataCite should answer.
+        primary = _unavailable(_cause(exc))
     if primary.status == METADATA_OK:
         return primary
 

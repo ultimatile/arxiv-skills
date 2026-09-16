@@ -572,6 +572,42 @@ def test_a_legacy_subject_class_is_left_out_of_the_doi_looked_up(
     )
 
 
+@pytest.mark.parametrize(
+    ("arxiv_id", "version"),
+    [
+        ("math.GT/0309136", "math/0309136v2"),
+        ("math.GT/0309136v1", "math/0309136v1"),
+    ],
+)
+def test_both_sources_spell_a_legacy_version_the_way_arxiv_does(
+    transport, arxiv_id, version
+):
+    # The version-drift check compares this string with the sidecar's. A
+    # DataCite answer spelling it with the subject class would read as another
+    # paper, and the fetch step would delete the cached source over it.
+    transport(_record("2409.03108"))
+    result = fetch_metadata(arxiv_id)
+    assert result.metadata is not None
+    assert result.metadata.version == version
+
+
+def test_an_unclassified_arxiv_failure_still_reaches_the_fallback(transport):
+    # http.client's exceptions are not OSError, so a response dropped midway —
+    # which is what an overloaded arXiv does — must not skip DataCite.
+    import http.client
+
+    requested = transport(
+        _record("2409.03108"), arxiv=http.client.IncompleteRead(b"half")
+    )
+    result = fetch_metadata("2409.03108")
+    assert _datacite_requests(requested) == [
+        arxiv_metadata._DATACITE_URL + "2409.03108"
+    ]
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+
+
 def test_a_requested_revision_with_no_listed_revisions_is_ok(transport):
     # With no Submitted dates there is no latest revision to compare against, so
     # the requested one is not rejected.
