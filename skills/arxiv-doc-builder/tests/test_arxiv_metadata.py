@@ -623,6 +623,22 @@ def test_the_arxiv_request_drops_a_legacy_subject_class(transport):
     assert requested == [arxiv_metadata._ARXIV_API_URL + "?id_list=math%2F0309136"]
 
 
+def test_a_version_the_entry_id_does_not_support_is_dropped(transport):
+    # `version` is the tail of the entry's id URL, and it reaches the download
+    # URLs and the drift record. A feed whose id parses to something that names
+    # no revision of this paper leaves the record versionless instead.
+    feed = _ATOM_ENTRY.replace(
+        b"<id>http://arxiv.org/abs/2606.09995v2</id>", b"<id>http://[unclosed</id>"
+    )
+    transport(b"unused", arxiv=feed)
+    result = fetch_metadata("2606.09995")
+
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.version is None
+    assert result.metadata.title == "A Study of Things"
+
+
 def test_a_rejected_id_is_reported_by_what_arxiv_said(transport):
     # arXiv answers a malformed id with HTTP 400 whose body holds an error
     # entry. The entry says what was wrong with the id; the status does not.
@@ -1339,6 +1355,17 @@ def test_every_status_token_round_trips_into_the_document(status, arxiv_id):
         arxiv_metadata.METADATA_SOURCE_ARXIV if status == METADATA_OK else None
     )
     assert set(parsed.keys()) == FRONTMATTER_KEYS
+
+
+@pytest.mark.parametrize(
+    "source", [None, "bogus"], ids=["absent", "outside-the-vocabulary"]
+)
+def test_ok_needs_a_record_naming_one_of_the_two_sources(source):
+    # The other half of the same invariant. `ok` says a record was read, so it
+    # must say which one, in the vocabulary the document tells a consumer to
+    # expect — a null there would read as "no record was read".
+    with pytest.raises(ValueError):
+        _fm(ArxivMetadata(title="T", source=source))
 
 
 @pytest.mark.parametrize("status", [METADATA_UNAVAILABLE, METADATA_NOT_REQUESTED])
