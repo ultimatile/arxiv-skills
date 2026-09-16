@@ -14,6 +14,7 @@ import pytest
 from arxiv_doc_builder import convert_paper
 from arxiv_doc_builder.arxiv_metadata import (
     METADATA_OK,
+    METADATA_SOURCE_ARXIV,
     ArxivMetadata,
     MetadataFetch,
     read_metadata_handoff,
@@ -21,7 +22,10 @@ from arxiv_doc_builder.arxiv_metadata import (
 
 ARXIV_ID = "2409.03108"
 LOOKUP = MetadataFetch(
-    METADATA_OK, metadata=ArxivMetadata(title="Handed Over", version="2409.03108v2")
+    METADATA_OK,
+    metadata=ArxivMetadata(
+        title="Handed Over", version="2409.03108v2", source=METADATA_SOURCE_ARXIV
+    ),
 )
 
 

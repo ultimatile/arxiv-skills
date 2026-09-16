@@ -19,7 +19,12 @@ import sys
 import pytest
 
 from arxiv_doc_builder import convert_paper
-from arxiv_doc_builder.arxiv_metadata import METADATA_OK, ArxivMetadata, MetadataFetch
+from arxiv_doc_builder.arxiv_metadata import (
+    METADATA_OK,
+    METADATA_SOURCE_ARXIV,
+    ArxivMetadata,
+    MetadataFetch,
+)
 
 _SENTINEL_TITLE = "Routing Sentinel Title"
 
@@ -57,7 +62,10 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(
     )
 
     lookup = MetadataFetch(
-        METADATA_OK, metadata=ArxivMetadata(title=_SENTINEL_TITLE, version=version)
+        METADATA_OK,
+        metadata=ArxivMetadata(
+            title=_SENTINEL_TITLE, version=version, source=METADATA_SOURCE_ARXIV
+        ),
     )
     monkeypatch.setattr(convert_paper, "fetch_metadata", lambda _id: lookup)
     monkeypatch.setattr(
