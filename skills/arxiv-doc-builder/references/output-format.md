@@ -84,6 +84,12 @@ Field notes:
   A withdrawn revision is still the paper's latest: `version` names it, the
   abstract reads as the withdrawal notice, and `published` stays the first
   revision's date.
+  For a paper arXiv serves as a PDF alone, no cached source stands behind the
+  recorded revision, so the revision follows whichever source answered: while
+  DataCite trails a new revision, a run that falls back to it records the
+  earlier revision and downloads that PDF again, and a later run that reaches
+  arXiv moves both forward again. It settles once DataCite lists the new
+  revision.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
 - `doi` holds the DOIs the record lists as versions of the paper, separated by
