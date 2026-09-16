@@ -168,10 +168,10 @@ class ArxivMetadata:
     doi: Optional[str] = None
     journal: Optional[str] = None
     abstract: Optional[str] = None
-    # Which record this was read from, one of ``METADATA_SOURCES``. ``None`` in
-    # an instance no record backs, such as the one the PDF path builds from a
-    # PDF's own title. DataCite's record carries no journal reference, so
-    # ``journal`` is always ``None`` under ``datacite``.
+    # Which record this was read from, one of ``METADATA_SOURCES``. ``None``
+    # when no record backs the instance, as for the one the PDF path builds
+    # from a PDF's own title. DataCite's record carries no journal reference,
+    # so ``journal`` is always ``None`` under ``datacite``.
     source: Optional[str] = None
 
 

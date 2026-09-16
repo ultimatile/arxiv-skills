@@ -77,8 +77,11 @@ Field notes:
 - `version` is the full versioned arXiv id (e.g. `2409.03108v2`, legacy
   `hep-th/9901001v3`). For an id given without a version it names the latest
   revision the record lists. For an id given with one it names that revision,
-  while every other record-derived field still describes the record, which
-  follows the latest revision. DataCite lists a new revision a few hours after
+  and which revision the other record-derived fields then describe depends on
+  the source that answered: arXiv is asked for that exact revision and returns
+  its entry, so they describe the revision asked for, while DataCite holds one
+  record per paper, so they describe its latest revision.
+  DataCite lists a new revision a few hours after
   arXiv announces it, so under `metadata_source: "datacite"` the record can
   trail what arXiv serves. That lag is the one case a recorded revision
   outranks the one the record names, and all four of its conditions hold
