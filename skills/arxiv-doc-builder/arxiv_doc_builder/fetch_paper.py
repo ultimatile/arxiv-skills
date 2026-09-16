@@ -74,6 +74,18 @@ def _latest_version(probe: MetadataFetch) -> Optional[str]:
     return probe.metadata.version if probe.metadata else None
 
 
+def _has_material(paper_dir: Path) -> bool:
+    """Whether the paper directory holds material a recorded revision describes.
+
+    The same two things the fetch steps treat as a cache hit: a source tree
+    holding a ``.tex``, or a non-empty PDF.
+    """
+    source = paper_dir / "source"
+    if source.is_dir() and any(source.rglob("*.tex")):
+        return True
+    return any(pdf.stat().st_size > 0 for pdf in (paper_dir / "pdf").glob("*.pdf"))
+
+
 def _target_version(
     paper_dir: Path, latest: Optional[str], *, pinned: bool
 ) -> Optional[str]:
@@ -88,6 +100,11 @@ def _target_version(
     always wins, and ``None`` stays ``None``.
     """
     if pinned or latest is None:
+        return latest
+    if not _has_material(paper_dir):
+        # With nothing on disk the record protects nothing, and a revision it
+        # names that no longer exists would be requested on every run and 404
+        # on every run. The lookup's version wins, and the run self-heals.
         return latest
     cached = _REVISION.fullmatch(_read_cached_version(paper_dir) or "")
     looked_up = _REVISION.fullmatch(latest)

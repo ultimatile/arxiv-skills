@@ -323,7 +323,9 @@ def transport(monkeypatch):
                 return outcome()
             return io.BytesIO(outcome)
 
-        def fake_urlopen(url, timeout=None):
+        def fake_urlopen(request, timeout=None):
+            # The lookup passes a Request, so that it can name this client.
+            url = getattr(request, "full_url", request)
             requested.append(url)
             on_arxiv = url.startswith(arxiv_metadata._ARXIV_API_URL)
             return respond(arxiv if on_arxiv else datacite)
@@ -632,6 +634,34 @@ def test_a_withdrawn_revision_counts_as_the_latest(transport):
     assert result.metadata.published == "2007-05-10"
 
 
+def test_both_requests_name_this_client(monkeypatch):
+    # arXiv asks API clients to identify themselves, and an unidentified one is
+    # the first a public API throttles — the failure this lookup exists to
+    # survive.
+    agents: list[Optional[str]] = []
+
+    def fake_urlopen(request, timeout=None):
+        agents.append(request.get_header("User-agent"))
+        raise OSError("offline")
+
+    monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
+    fetch_metadata("2409.03108")
+    assert agents == [arxiv_metadata._USER_AGENT, arxiv_metadata._USER_AGENT]
+
+
+def test_an_unclassified_datacite_failure_keeps_the_arxiv_cause(transport):
+    # The mirror image of the arXiv leg's guard: an exception DataCite's leg
+    # does not classify must not report itself alone, dropping what arXiv said.
+    import http.client
+
+    transport(http.client.IncompleteRead(b"half"), arxiv=_http_error(429))
+    result = fetch_metadata("2409.03108")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.failure_cause.startswith(
+        "arXiv: arXiv rate-limited the request (HTTP 429); DataCite: IncompleteRead"
+    )
+
+
 def test_an_unclassified_arxiv_failure_still_reaches_the_fallback(transport):
     # http.client's exceptions are not OSError, so a response dropped midway —
     # which is what an overloaded arXiv does — must not skip DataCite.
@@ -859,9 +889,9 @@ def test_an_unanticipated_exception_in_the_lookup_is_still_unavailable(
     monkeypatch.setattr(arxiv_metadata, "_parse_record", boom)
     result = fetch_metadata("2409.03108")
     assert result.status == METADATA_UNAVAILABLE
-    # An exception no leg anticipated leaves the chain, so the worker's handler
-    # reports it on its own rather than alongside the other leg's cause.
-    assert result.error == "RuntimeError: boom"
+    # Each leg is guarded, so an exception neither of them anticipated is still
+    # reported alongside what the other source said.
+    assert result.failure_cause.endswith("DataCite: RuntimeError: boom")
 
 
 def test_surrogates_in_codes_and_dois_are_dropped_before_they_reach_a_handoff(tmp_path):

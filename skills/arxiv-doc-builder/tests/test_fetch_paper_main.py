@@ -75,7 +75,10 @@ def test_a_record_of_a_later_revision_is_kept_while_the_lookup_lags(
     # revision. Refreshing would delete the cached source, edits included, and
     # record the older revision over newer material.
     paper_dir = tmp_path / "2409.03108"
-    paper_dir.mkdir()
+    (paper_dir / "source").mkdir(parents=True)
+    # The recorded revision speaks for this material; without it the lookup's
+    # version would win instead.
+    (paper_dir / "source" / "main.tex").write_text("x", encoding="utf-8")
     later = PROBE_VERSION.rsplit("v", 1)[0] + "v99"
     fetch_paper._write_cached_version(paper_dir, later)
     calls: list[tuple[str, bool]] = []

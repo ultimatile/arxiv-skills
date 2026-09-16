@@ -60,6 +60,11 @@ from typing import Any, Callable, Optional
 # those downloads serve.
 _ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
+# Sent on every request. arXiv asks API clients to identify themselves, and a
+# request carrying urllib's default agent is the first thing a public API
+# throttles — which is the failure this module exists to survive.
+_USER_AGENT = "arxiv-doc-builder (+https://github.com/ultimatile/arxiv-skills)"
+
 # The Atom feed's namespaces. arXiv's extension carries primary_category, doi
 # and journal_ref; everything else is plain Atom.
 _NS = {
@@ -210,6 +215,11 @@ def _unavailable(cause: str) -> MetadataFetch:
 def _cause(exc: BaseException) -> str:
     """An exception as the cause text a failed outcome carries."""
     return f"{type(exc).__name__}: {exc}"
+
+
+def _request(url: str) -> urllib.request.Request:
+    """``url`` as a request that names this client."""
+    return urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
 
 
 def _is_yaml_printable(codepoint: int) -> bool:
@@ -512,7 +522,7 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
     query = _SUBJECT_CLASS.sub(r"\1/", arxiv_id)
     url = _ARXIV_API_URL + "?" + urllib.parse.urlencode({"id_list": query})
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
             tree = ET.parse(resp)
     except urllib.error.HTTPError as exc:
         # HTTPError subclasses URLError, so it must be caught first.
@@ -556,7 +566,7 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     doi_id = _SUBJECT_CLASS.sub(r"\1/", bare_id)
     url = _DATACITE_URL + urllib.parse.quote(doi_id, safe="/")
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
         # HTTPError subclasses URLError, so it must be caught first.
@@ -622,7 +632,13 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
         return _unavailable(
             f"arXiv: {primary.failure_cause}; no time left to ask DataCite"
         )
-    fallback = _lookup_datacite(arxiv_id, remaining)
+    try:
+        fallback = _lookup_datacite(arxiv_id, remaining)
+    except Exception as exc:
+        # Guarded like the arXiv leg, and for the same reason. Letting the
+        # exception escape would report it alone, dropping what arXiv said —
+        # the one thing a two-source lookup exists to tell the user.
+        fallback = _unavailable(_cause(exc))
     if fallback.status == METADATA_OK:
         return fallback
     return _unavailable(

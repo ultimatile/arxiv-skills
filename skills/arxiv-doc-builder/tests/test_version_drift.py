@@ -130,9 +130,25 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
 def test_target_version_keeps_a_later_recorded_revision_of_an_unpinned_id(
     tmp_path, cached, latest, pinned, target
 ):
+    # The recorded revision speaks for material on disk, so these cases seed
+    # some; the case without it is its own test below.
+    (tmp_path / "source").mkdir()
+    (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
     if cached is not None:
         _write_cached_version(tmp_path, cached)
     assert _target_version(tmp_path, latest, pinned=pinned) == target
+
+
+def test_a_record_without_material_cannot_outvote_the_lookup(tmp_path):
+    # A sidecar naming a revision that no longer exists would otherwise be
+    # re-confirmed on every run, and the download of it would fail on every
+    # run, since nothing else would ever be asked for.
+    _write_cached_version(tmp_path, "2409.03108v99")
+    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
+
+    (tmp_path / "pdf").mkdir()
+    (tmp_path / "pdf" / "2409.03108.pdf").write_bytes(b"%PDF-stub")
+    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v99"
 
 
 # --- what the lookup yields, and when the sidecar advances ------------------
