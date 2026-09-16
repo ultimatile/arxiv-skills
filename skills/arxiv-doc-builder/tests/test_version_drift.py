@@ -10,6 +10,10 @@ import pytest
 
 from conftest import PROBE_ERROR, PROBE_VERSION
 
+from arxiv_doc_builder.arxiv_metadata import (
+    METADATA_SOURCE_ARXIV,
+    METADATA_SOURCE_DATACITE,
+)
 from arxiv_doc_builder.fetch_paper import (
     _format_sidecar_skip_warning,
     _latest_version,
@@ -78,7 +82,12 @@ def test_a_version_that_is_not_text_reads_as_absent(tmp_path, content):
     (tmp_path / _METADATA_FILE).write_text(content, encoding="utf-8")
     assert _read_cached_version(tmp_path) is None
     assert _needs_refresh(tmp_path, "2409.03108v2") is True
-    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
+    assert (
+        _target_version(
+            tmp_path, "2409.03108v2", pinned=False, source=METADATA_SOURCE_DATACITE
+        )
+        == "2409.03108v2"
+    )
 
 
 def test_write_overwrites(tmp_path):
@@ -131,12 +140,36 @@ def test_target_version_keeps_a_later_recorded_revision_of_an_unpinned_id(
     tmp_path, cached, latest, pinned, target
 ):
     # The recorded revision speaks for material on disk, so these cases seed
-    # some; the case without it is its own test below.
+    # some; the case without it is its own test below. They read as the
+    # fallback answering, the only source whose record can trail arXiv.
     (tmp_path / "source").mkdir()
     (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
     if cached is not None:
         _write_cached_version(tmp_path, cached)
-    assert _target_version(tmp_path, latest, pinned=pinned) == target
+    target_version = _target_version(
+        tmp_path, latest, pinned=pinned, source=METADATA_SOURCE_DATACITE
+    )
+    assert target_version == target
+
+
+def test_a_record_ahead_of_arxivs_own_answer_does_not_win(tmp_path):
+    # arXiv's record is authoritative about its own revisions, so a cached
+    # revision ahead of it is not a lag. Letting it win would hold the paper
+    # at that revision for as long as the file stayed — no lookup could move
+    # it, since the comparison would keep going the same way.
+    (tmp_path / "source").mkdir()
+    (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
+    _write_cached_version(tmp_path, "2409.03108v99")
+
+    from_arxiv = _target_version(
+        tmp_path, "2409.03108v2", pinned=False, source=METADATA_SOURCE_ARXIV
+    )
+    assert from_arxiv == "2409.03108v2"
+
+    from_datacite = _target_version(
+        tmp_path, "2409.03108v2", pinned=False, source=METADATA_SOURCE_DATACITE
+    )
+    assert from_datacite == "2409.03108v99"
 
 
 def test_a_record_without_a_cached_source_cannot_outvote_the_lookup(tmp_path):
@@ -144,18 +177,19 @@ def test_a_record_without_a_cached_source_cannot_outvote_the_lookup(tmp_path):
     # re-confirmed on every run, while the source download for that revision
     # failed on every run and the LaTeX path never came back.
     _write_cached_version(tmp_path, "2409.03108v99")
-    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
+    lagging = {"pinned": False, "source": METADATA_SOURCE_DATACITE}
+    assert _target_version(tmp_path, "2409.03108v2", **lagging) == "2409.03108v2"
 
     # A cached PDF does not change that: the source would still be fetched at
     # the recorded revision, which is the download that fails.
     (tmp_path / "pdf").mkdir()
     (tmp_path / "pdf" / "2409.03108.pdf").write_bytes(b"%PDF-stub")
-    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v2"
+    assert _target_version(tmp_path, "2409.03108v2", **lagging) == "2409.03108v2"
 
     # A cached source is what the record speaks for, so it wins there.
     (tmp_path / "source").mkdir()
     (tmp_path / "source" / "main.tex").write_text("x", encoding="utf-8")
-    assert _target_version(tmp_path, "2409.03108v2", pinned=False) == "2409.03108v99"
+    assert _target_version(tmp_path, "2409.03108v2", **lagging) == "2409.03108v99"
 
 
 # --- what the lookup yields, and when the sidecar advances ------------------

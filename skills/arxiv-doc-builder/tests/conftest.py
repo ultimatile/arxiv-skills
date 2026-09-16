@@ -11,6 +11,7 @@ import pytest
 
 from arxiv_doc_builder.arxiv_metadata import (
     METADATA_OK,
+    METADATA_SOURCE_ARXIV,
     METADATA_UNAVAILABLE,
     ArxivMetadata,
     MetadataFetch,
@@ -103,8 +104,15 @@ def failed_probe() -> MetadataFetch:
 
 @pytest.fixture
 def probe_with_version() -> MetadataFetch:
-    """A record that was read and carries a version."""
-    return MetadataFetch(METADATA_OK, metadata=ArxivMetadata(version=PROBE_VERSION))
+    """A record that was read and carries a version.
+
+    Every ``ok`` outcome names the source it was read from, and a handoff
+    written from one that does not is rejected, so these carry one.
+    """
+    return MetadataFetch(
+        METADATA_OK,
+        metadata=ArxivMetadata(version=PROBE_VERSION, source=METADATA_SOURCE_ARXIV),
+    )
 
 
 @pytest.fixture
@@ -114,7 +122,10 @@ def probe_without_version() -> MetadataFetch:
     The cell that separates "the lookup failed" from "no version to record":
     both leave the sidecar unwritten, by different routes.
     """
-    return MetadataFetch(METADATA_OK, metadata=ArxivMetadata(version=None))
+    return MetadataFetch(
+        METADATA_OK,
+        metadata=ArxivMetadata(version=None, source=METADATA_SOURCE_ARXIV),
+    )
 
 
 @pytest.fixture

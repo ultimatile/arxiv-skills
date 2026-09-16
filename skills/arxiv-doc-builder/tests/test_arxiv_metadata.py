@@ -1098,15 +1098,25 @@ def test_a_deadline_that_is_not_an_int_or_float_is_rejected_before_the_lookup(
     "fetch",
     [
         MetadataFetch(METADATA_OK, metadata=_FULL),
-        MetadataFetch(METADATA_OK, metadata=ArxivMetadata()),
         MetadataFetch(
             METADATA_OK,
-            metadata=ArxivMetadata(title='q"uote \\ back\nline é \x85', authors=[""]),
+            metadata=ArxivMetadata(source=arxiv_metadata.METADATA_SOURCE_ARXIV),
         ),
         MetadataFetch(
             METADATA_OK,
             metadata=ArxivMetadata(
-                title="   ", categories=["\ud800"], doi="10.1/\udfff"
+                title='q"uote \\ back\nline é \x85',
+                authors=[""],
+                source=arxiv_metadata.METADATA_SOURCE_ARXIV,
+            ),
+        ),
+        MetadataFetch(
+            METADATA_OK,
+            metadata=ArxivMetadata(
+                title="   ",
+                categories=["\ud800"],
+                doi="10.1/\udfff",
+                source=arxiv_metadata.METADATA_SOURCE_DATACITE,
             ),
         ),
         MetadataFetch(METADATA_UNAVAILABLE, error="URLError: timed out"),
@@ -1153,7 +1163,7 @@ _GOOD_METADATA = {
     "doi": None,
     "journal": None,
     "abstract": None,
-    "source": None,
+    "source": arxiv_metadata.METADATA_SOURCE_ARXIV,
 }
 
 
@@ -1192,6 +1202,7 @@ def _with_metadata(**fields) -> dict:
         _with_metadata(title=7),
         _with_metadata(title=True),
         _with_metadata(source="bogus"),
+        _with_metadata(source=None),
         {
             **_handoff(),
             "fetch": {
@@ -1216,6 +1227,7 @@ def _with_metadata(**fields) -> dict:
         "title-a-number",
         "title-a-bool",
         "source-outside-the-vocabulary",
+        "ok-without-a-source",
         "unknown-metadata-key",
     ],
 )

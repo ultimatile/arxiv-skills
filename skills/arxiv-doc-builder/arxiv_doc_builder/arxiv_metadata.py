@@ -817,11 +817,18 @@ def _read_handoff(path: Path, arxiv_id: str) -> MetadataFetch:
     if fetch["error"] is not None and not isinstance(fetch["error"], str):
         raise ValueError("error is not a string or null")
     # MetadataFetch.__post_init__ checks that status, metadata and error agree.
-    return MetadataFetch(
+    outcome = MetadataFetch(
         fetch["status"],
         metadata=_handoff_metadata(fetch["metadata"]),
         error=fetch["error"],
     )
+    # The last shape the field checks above let through: a record that names no
+    # source. ``references/output-format.md`` tells a consumer that
+    # ``metadata_source`` is null exactly when ``metadata_status`` is not
+    # ``ok``, and a document written from this would say otherwise.
+    if outcome.status == METADATA_OK and outcome.metadata.source is None:  # type: ignore[union-attr]
+        raise ValueError("an ok outcome names no source")
+    return outcome
 
 
 def read_metadata_handoff(path: Path, arxiv_id: str) -> MetadataFetch:

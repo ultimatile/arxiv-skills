@@ -11,7 +11,13 @@ import pytest
 from conftest import PROBE_ERROR, PROBE_VERSION, refuse_lookup
 
 from arxiv_doc_builder import fetch_paper
-from arxiv_doc_builder.arxiv_metadata import write_metadata_handoff
+from arxiv_doc_builder.arxiv_metadata import (
+    METADATA_OK,
+    METADATA_SOURCE_DATACITE,
+    ArxivMetadata,
+    MetadataFetch,
+    write_metadata_handoff,
+)
 
 
 @pytest.fixture
@@ -69,11 +75,16 @@ def test_the_downloads_name_the_revision_the_sidecar_records(
 
 
 def test_a_record_of_a_later_revision_is_kept_while_the_lookup_lags(
-    monkeypatch, tmp_path, probe_with_version
+    monkeypatch, tmp_path
 ):
-    # The lookup reports PROBE_VERSION while the sidecar already records a later
-    # revision. Refreshing would delete the cached source, edits included, and
-    # record the older revision over newer material.
+    # The fallback reports PROBE_VERSION while the sidecar already records a
+    # later revision. Refreshing would delete the cached source, edits
+    # included, and record the older revision over newer material. Only the
+    # fallback's record can trail arXiv, which is why the probe names it.
+    probe_with_version = MetadataFetch(
+        METADATA_OK,
+        metadata=ArxivMetadata(version=PROBE_VERSION, source=METADATA_SOURCE_DATACITE),
+    )
     paper_dir = tmp_path / "2409.03108"
     (paper_dir / "source").mkdir(parents=True)
     # The recorded revision speaks for this material; without it the lookup's

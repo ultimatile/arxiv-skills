@@ -22,6 +22,7 @@ from typing import Optional
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_doc_builder.arxiv_metadata import (
+        METADATA_SOURCE_DATACITE,
         MetadataFetch,
         add_metadata_handoff_option,
         fetch_metadata,
@@ -34,6 +35,7 @@ except ModuleNotFoundError as _exc:
     # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_metadata import (
+        METADATA_SOURCE_DATACITE,
         MetadataFetch,
         add_metadata_handoff_option,
         fetch_metadata,
@@ -89,19 +91,26 @@ def _has_cached_source(paper_dir: Path) -> bool:
 
 
 def _target_version(
-    paper_dir: Path, latest: Optional[str], *, pinned: bool
+    paper_dir: Path, latest: Optional[str], *, pinned: bool, source: Optional[str]
 ) -> Optional[str]:
     """The revision this run should have on disk and record.
 
     Normally ``latest``, the lookup's version. For an id given without a
     revision (``pinned`` false), a sidecar recording a later revision of the
-    same id wins instead. A record read from the DataCite fallback can trail
-    what arXiv serves, and an earlier run may already hold the later revision,
-    so going back to ``latest`` would delete the cached source only to fetch
-    the later one again once that record catches up. A requested revision
-    always wins, and ``None`` stays ``None``.
+    same id wins instead — but only when the DataCite fallback answered, since
+    only its record can trail what arXiv serves. An earlier run may already
+    hold the later revision, so going back to ``latest`` would delete the
+    cached source only to fetch the later one again once that record catches
+    up. A requested revision always wins, and ``None`` stays ``None``.
     """
     if pinned or latest is None:
+        return latest
+    if source != METADATA_SOURCE_DATACITE:
+        # Only the fallback's record can trail what arXiv serves. arXiv's own
+        # record is authoritative about its revisions, so a cached revision
+        # ahead of it is not a lag but a record left behind by something else —
+        # a hand edit, say — and letting it win would hold the paper there for
+        # as long as the file stayed.
         return latest
     if not _has_cached_source(paper_dir):
         # With no cached source the record protects nothing, and a revision it
@@ -447,6 +456,7 @@ def main():
         paper_dir,
         _latest_version(probe),
         pinned=_REVISION.fullmatch(args.arxiv_id) is not None,
+        source=probe.metadata.source if probe.metadata else None,
     )
     refresh = _needs_refresh(paper_dir, latest)
     if refresh:
