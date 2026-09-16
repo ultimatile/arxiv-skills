@@ -146,7 +146,7 @@ _CALENDAR_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SUBJECT_CODE = re.compile(r"\(([^()]+)\)\s*$")
 
 
-@dataclass(kw_only=True)
+@dataclass
 class ArxivMetadata:
     """The subset of a paper's metadata record that the frontmatter transcribes.
 
