@@ -150,8 +150,9 @@ _SUBJECT_CODE = re.compile(r"\(([^()]+)\)\s*$")
 class ArxivMetadata:
     """The subset of a paper's metadata record that the frontmatter transcribes.
 
-    Every field is optional. In an instance built from DataCite's record a
-    ``None`` means the record reports no value there.
+    Every field is optional. In an instance built from either record a
+    ``None`` means that record reports no value there — except ``journal``
+    under ``datacite``, which is a field that record does not carry at all.
 
     The PDF path also builds this type from a PDF's own title and author when no
     record backs the document, and then a ``None`` means only that nothing
