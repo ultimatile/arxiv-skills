@@ -81,6 +81,9 @@ Field notes:
   revision of an id given without a version, the fetch step keeps and converts
   that revision, and `version` still names the record's older one. The
   revision on disk is the one `.arxiv-fetch.json` records.
+  A withdrawn revision is still the paper's latest: `version` names it, the
+  abstract reads as the withdrawal notice, and `published` stays the first
+  revision's date.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
 - `doi` holds the DOIs the record lists as versions of the paper, separated by

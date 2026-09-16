@@ -77,10 +77,13 @@ _DATACITE_URL = "https://api.datacite.org/dois/10.48550/arxiv."
 METADATA_DEADLINE_SECONDS = 5.0
 
 # The share of that budget the arXiv attempt may spend before the DataCite
-# attempt gets what is left. arXiv's rate-limit response has been observed
-# arriving anywhere from 0.26 s to 124 s after the request, so a first attempt
-# that could spend the whole budget would leave the fallback none.
-_ARXIV_DEADLINE_SHARE = 0.6
+# attempt gets what is left. The two differ in shape: over 15 measured
+# lookups arXiv answered in 0.04 s to 1.5 s except for one transient stall,
+# while DataCite took 1.1 s to 1.4 s every time. An even split therefore cuts
+# off no healthy arXiv response and still leaves the fallback well over the
+# time it needs, which matters because the fallback runs exactly when the
+# arXiv attempt spent its whole share.
+_ARXIV_DEADLINE_SHARE = 0.5
 
 # The ``metadata_status`` frontmatter vocabulary. Anything that keeps a usable
 # record from being read gives ``unavailable``, and the warning says what did.
@@ -110,6 +113,15 @@ _VERSION_SUFFIX = re.compile(r"v(\d+)$")
 # paper's DOI under the archive alone ("math/0309136"), and DataCite answers 404
 # for the subject-class form.
 _SUBJECT_CLASS = re.compile(r"^([a-z]+(?:-[a-z]+)?)\.[A-Za-z]+(?:-[A-Za-z]+)*/")
+
+# The revision a DataCite date entry describes, read off the front of its
+# ``dateInformation`` label.
+_REVISION_LABEL = re.compile(r"v(\d+)")
+
+# The date types that list a revision. A withdrawal is listed as ``Withdrawn``
+# rather than ``Submitted``, and it is still the paper's latest revision — the
+# one arXiv's own record names — so both types count towards the latest.
+_REVISION_DATE_TYPES = ("Submitted", "Withdrawn")
 
 # The leading calendar date of a DataCite date value. DataCite also carries
 # year-only and year-month values, which have none.
@@ -277,14 +289,20 @@ def _text(entry: dict[str, Any], key: str) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
-def _submitted_versions(attributes: dict[str, Any]) -> dict[int, str]:
-    """Each revision number DataCite lists as submitted, mapped to its date."""
+def _revision_dates(
+    attributes: dict[str, Any], *, date_types: tuple[str, ...]
+) -> dict[int, str]:
+    """The revisions DataCite lists under ``date_types``, mapped to their dates.
+
+    DataCite labels a revision ``v<N>``, sometimes with a note after it
+    (``"v2; None"`` on a withdrawal), so the number is read off the front of
+    the label rather than matched against the whole of it.
+    """
     versions: dict[int, str] = {}
     for entry in _dicts(attributes.get("dates")):
-        if entry.get("dateType") != "Submitted":
+        if entry.get("dateType") not in date_types:
             continue
-        label = _text(entry, "dateInformation") or ""
-        match = _VERSION_SUFFIX.fullmatch(label)
+        match = _REVISION_LABEL.match(_text(entry, "dateInformation") or "")
         date = _text(entry, "date")
         if match and date:
             versions[int(match.group(1))] = date
@@ -324,11 +342,12 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
         if normalized:
             authors.append(normalized)
 
-    submitted = _submitted_versions(attributes)
+    listed = _revision_dates(attributes, date_types=_REVISION_DATE_TYPES)
+    submitted = _revision_dates(attributes, date_types=("Submitted",))
     if requested is not None:
         version: Optional[str] = arxiv_id
-    elif submitted:
-        version = f"{bare_id}v{max(submitted)}"
+    elif listed:
+        version = f"{bare_id}v{max(listed)}"
     else:
         version = None
 
@@ -465,15 +484,39 @@ def _arxiv_http_cause(code: int) -> str:
     return f"HTTP {code}"
 
 
+def _arxiv_error_cause(exc: urllib.error.HTTPError) -> str:
+    """What an arXiv HTTP failure says, preferring its error entry.
+
+    A rejected id comes back as HTTP 400 whose body is a feed holding one
+    error entry, and that entry's summary names what was wrong with the id,
+    which the status code alone does not.
+    """
+    try:
+        entry = ET.parse(exc).find(".//atom:entry", _NS)
+    except Exception:
+        entry = None
+    if entry is not None and _is_error_entry(entry):
+        summary = _normalize(_atom_text(entry, "atom:summary"))
+        if summary:
+            return f"arXiv rejected the id: {summary}"
+    return _arxiv_http_cause(exc.code)
+
+
 def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
-    """One request to arXiv's Atom API and the classification of its outcome."""
-    url = _ARXIV_API_URL + "?" + urllib.parse.urlencode({"id_list": arxiv_id})
+    """One request to arXiv's Atom API and the classification of its outcome.
+
+    A legacy id loses its subject class first. arXiv answers such an id only
+    under the archive alone and returns an empty feed for the other spelling,
+    which would send every one of those papers to the fallback.
+    """
+    query = _SUBJECT_CLASS.sub(r"\1/", arxiv_id)
+    url = _ARXIV_API_URL + "?" + urllib.parse.urlencode({"id_list": query})
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             tree = ET.parse(resp)
     except urllib.error.HTTPError as exc:
         # HTTPError subclasses URLError, so it must be caught first.
-        return _unavailable(_arxiv_http_cause(exc.code))
+        return _unavailable(_arxiv_error_cause(exc))
     except urllib.error.URLError as exc:
         return _unavailable(f"URLError: {exc.reason}")
     except OSError as exc:
@@ -534,10 +577,10 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     if not isinstance(attributes, dict):
         return _unavailable("DataCite response has no data.attributes")
 
-    submitted = _submitted_versions(attributes)
-    if requested is not None and submitted and requested > max(submitted):
+    listed = _revision_dates(attributes, date_types=_REVISION_DATE_TYPES)
+    if requested is not None and listed and requested > max(listed):
         return _unavailable(
-            f"{arxiv_id} is later than v{max(submitted)}, the latest revision "
+            f"{arxiv_id} is later than v{max(listed)}, the latest revision "
             f"DataCite lists for {bare_id}"
         )
     # Parsed under the id arXiv itself uses — the archive alone, without the

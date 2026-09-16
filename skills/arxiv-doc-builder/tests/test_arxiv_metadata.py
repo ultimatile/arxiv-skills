@@ -591,6 +591,47 @@ def test_both_sources_spell_a_legacy_version_the_way_arxiv_does(
     assert result.metadata.version == version
 
 
+def test_the_arxiv_request_drops_a_legacy_subject_class(transport):
+    # arXiv answers a legacy id only under the archive alone; the subject-class
+    # spelling returns an empty feed, which would send every such paper to the
+    # fallback and lose the journal reference only arXiv's record carries.
+    requested = transport(b"unused", arxiv=_ATOM_ENTRY)
+    fetch_metadata("math.GT/0309136")
+    assert requested == [arxiv_metadata._ARXIV_API_URL + "?id_list=math%2F0309136"]
+
+
+def test_a_rejected_id_is_reported_by_what_arxiv_said(transport):
+    # arXiv answers a malformed id with HTTP 400 whose body holds an error
+    # entry. The entry says what was wrong with the id; the status does not.
+    from email.message import Message
+
+    rejected = urllib.error.HTTPError(
+        arxiv_metadata._ARXIV_API_URL,
+        400,
+        "Bad Request",
+        Message(),
+        io.BytesIO(_ATOM_ERROR_ENTRY),
+    )
+    transport(_http_error(404), arxiv=rejected)
+    result = fetch_metadata("2606.09995")
+    assert result.failure_cause.startswith(
+        "arXiv: arXiv rejected the id: incorrect id format for nonsense"
+    )
+
+
+def test_a_withdrawn_revision_counts_as_the_latest(transport):
+    # DataCite lists a withdrawal as `Withdrawn`, labelled "v2; None", while
+    # arXiv's own record names v2 as the paper's latest. Counting only
+    # `Submitted` entries would have the two sources disagree, and the
+    # version-drift check reads a disagreement as a new revision.
+    transport(_record("0705.1442"))
+    result = fetch_metadata("0705.1442")
+    assert result.metadata is not None
+    assert result.metadata.version == "0705.1442v2"
+    # `published` stays the first revision's date, as arXiv's record reports it.
+    assert result.metadata.published == "2007-05-10"
+
+
 def test_an_unclassified_arxiv_failure_still_reaches_the_fallback(transport):
     # http.client's exceptions are not OSError, so a response dropped midway —
     # which is what an overloaded arXiv does — must not skip DataCite.
