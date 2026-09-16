@@ -22,18 +22,24 @@ which renders as an empty list (`categories: []`) instead.
 In the rest of this section, a null field includes an empty `categories`.
 
 What a null means depends on `metadata_status`, which records whether a usable
-metadata record behind the record-derived fields was read. That record is the
-one arXiv registers at DataCite for the paper's DOI, `10.48550/arXiv.<id>`:
+metadata record behind the record-derived fields was read, and on
+`metadata_source`, which records where that record came from. The lookup asks
+arXiv's own API first (`metadata_source: "arxiv"`) and falls back to the
+registration arXiv files at DataCite for the paper's DOI,
+`10.48550/arXiv.<id>` (`metadata_source: "datacite"`), when arXiv does not
+answer with a record. The two records do not carry the same fields, so a null
+is read against the one that answered:
 
-- `ok`. The record was read, and a null field is a **confirmed absence**. The
-  record exists and reports no value there, which supports a "preprint, no
-  journal DOI" reading.
-- `unavailable`. The lookup failed or did not finish in time, DataCite has no
-  record for the id, or the id names a revision later than the latest one the
-  record lists. No
-  usable record reached the converter, which leaves a null field **unknown**
-  instead of a confirmed absence. The conversion names the
-  cause on stderr as it runs.
+- `ok`. The record `metadata_source` names was read, and a null field is a
+  **confirmed absence from that record**. Under `arxiv` a null `journal` or
+  `doi` supports a "preprint, not published yet" reading. Under `datacite` a
+  null `journal` says nothing of the sort: that record has no journal-reference
+  field at all.
+- `unavailable`. Neither source supplied a record. Both attempts failed, or the
+  budget ran out, or DataCite has no record for the id, or the id names a
+  revision later than the latest one DataCite lists. A null field is therefore
+  **unknown** rather than a confirmed absence. The conversion names what each
+  source said on stderr as it runs.
 - `not_requested`. The conversion ran with no arXiv id, and the record was
   never sought. A null field is unknown here as well, for a different reason
   than under `unavailable`, where the question was put and no record came back.
@@ -53,8 +59,10 @@ categories:
   - "cs.AI"
   - "cs.CL"
 doi: "10.1145/1234567.1234568"   # or bare `doi:` (null); see metadata_status
+journal: "Phys. Rev. D 76, 013009 (2007)"   # null unless arXiv's record answered
 source_type: "latex"             # or "pdf"
 metadata_status: "ok"            # or "unavailable" / "not_requested"
+metadata_source: "arxiv"         # or "datacite"; null when no record was read
 conversion_date: "2025-12-08T10:00:00+00:00"
 abstract: |-
   Single-paragraph abstract, whitespace-normalized.
@@ -68,7 +76,8 @@ Field notes:
   revision the record lists. For an id given with one it names that revision,
   while every other record-derived field still describes the record, which
   follows the latest revision. DataCite lists a new revision a few hours after
-  arXiv announces it. When `.arxiv-fetch.json` already records a later
+  arXiv announces it, so under `metadata_source: "datacite"` the record can
+  trail what arXiv serves. When `.arxiv-fetch.json` already records a later
   revision of an id given without a version, the fetch step keeps and converts
   that revision, and `version` still names the record's older one. The
   revision on disk is the one `.arxiv-fetch.json` records.
@@ -80,18 +89,24 @@ Field notes:
   Resolving a
   DOI that the record does not carry is the arxiv-lookup
   skill's job, not this converter's.
-- `categories` lists the arXiv category codes as DataCite's record gives them,
-  in the record's order. For an alias pair such as `math-ph` and `math.MP`, the
-  record carries one code, the one the paper's arXiv abstract page shows.
-- `primary_category` is the first code in `categories`. DataCite's record marks
-  no category as primary. Its first code has matched the primary category on the
-  arXiv abstract page in every record compared, but DataCite does not document
-  that ordering.
+- `journal` is the paper's journal reference, as the author entered it on
+  arXiv. Only arXiv's record carries one, so the key is null under
+  `metadata_source: "datacite"` whatever the paper's publication history.
+- `categories` lists the arXiv category codes the answering record gives, in
+  its order. Which codes of an alias pair (`math-ph` and `math.MP`, say) appear
+  is likewise whatever that record lists.
+- `primary_category` under `arxiv` is the category that record marks as
+  primary. Under `datacite` it is the first code in `categories`: DataCite's
+  record marks none as primary, and its first code matched the primary category
+  on the arXiv abstract page in every record compared, though DataCite does not
+  document that ordering.
+- `metadata_source` names the record the fields above came from, and is null
+  exactly when `metadata_status` is not `ok`.
 - Two fields survive on local sources when no record backs the document.
   `title` comes from the LaTeX `\title` or the PDF's embedded title on either
   path, and `authors` from the PDF's embedded author on the PDF path, staying
   null on the LaTeX path. Every other record-derived field renders as null, and
-`categories` as `[]`.
+  `categories` as `[]`.
   A populated `title` or `authors` is therefore no evidence that the record was
   read, and `metadata_status` is what answers that.
 

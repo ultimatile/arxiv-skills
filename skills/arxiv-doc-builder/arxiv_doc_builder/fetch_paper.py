@@ -81,10 +81,11 @@ def _target_version(
 
     Normally ``latest``, the lookup's version. For an id given without a
     revision (``pinned`` false), a sidecar recording a later revision of the
-    same id wins instead. DataCite can lag arXiv, and an earlier run may
-    already hold the later revision, so going back to ``latest`` would delete
-    the cached source only to fetch the later one again once DataCite catches
-    up. A requested revision always wins, and ``None`` stays ``None``.
+    same id wins instead. A record read from the DataCite fallback can trail
+    what arXiv serves, and an earlier run may already hold the later revision,
+    so going back to ``latest`` would delete the cached source only to fetch
+    the later one again once that record catches up. A requested revision
+    always wins, and ``None`` stays ``None``.
     """
     if pinned or latest is None:
         return latest
@@ -141,9 +142,9 @@ def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
             "the reason this warning states"
         )
     if probe.error is not None:
-        situation = f"no usable DataCite record for {arxiv_id}: {probe.error}"
+        situation = f"no usable metadata record for {arxiv_id}: {probe.error}"
     else:
-        situation = f"DataCite's record for {arxiv_id} carried no version"
+        situation = f"the metadata record for {arxiv_id} carried no version"
     return (
         f"WARNING: {situation}\n"
         f"  Version drift was not checked, and {_METADATA_FILE} was not updated."
@@ -437,9 +438,9 @@ def main():
         print()
 
     # Download the revision the record names, so the version the sidecar records
-    # is the one on disk even while DataCite has yet to list a revision arXiv
-    # already serves. With no version, arXiv's latest is downloaded and nothing
-    # is recorded.
+    # is the one on disk even when the record trails what arXiv serves, as the
+    # DataCite fallback's can. With no version, arXiv's latest is downloaded and
+    # nothing is recorded.
     download_id = latest or args.arxiv_id
     has_source = fetch_source(
         download_id,

@@ -270,11 +270,12 @@ def convert_pdf_to_markdown(
         output_path: Path to output Markdown file
         pages_to_extract: Set of page numbers to extract (1-indexed). If None, extract all pages.
         double_column_pages: Set of page numbers to process as double-column (1-indexed)
-        arxiv_id: arXiv ID for authoritative metadata. When given, DataCite's
-            record for the paper drives the frontmatter; when omitted (manual
-            PDF scripts) or the lookup fails, the PDF's embedded title/author
-            are used and the record-only fields render as null.
-            ``metadata_status`` records which of those happened.
+        arxiv_id: arXiv ID for authoritative metadata. When given, the paper's
+            metadata record drives the frontmatter; when omitted (manual PDF
+            scripts) or the lookup fails, the PDF's embedded title/author are
+            used and the record-only fields render as null.
+            ``metadata_status`` records which of those happened, and
+            ``metadata_source`` which record answered.
         metadata_handoff: A lookup already made for ``arxiv_id``, written by
             ``convert_paper``. Without one, the record is looked up here.
             Requires ``arxiv_id``.

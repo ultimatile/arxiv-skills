@@ -58,8 +58,10 @@ FRONTMATTER_KEYS = {
     "primary_category",
     "categories",
     "doi",
+    "journal",
     "source_type",
     "metadata_status",
+    "metadata_source",
     "conversion_date",
     "abstract",
 }
@@ -74,7 +76,9 @@ _FULL = ArxivMetadata(
     primary_category="quant-ph",
     categories=["quant-ph", "cond-mat.str-el"],
     doi="10.1103/PhysRevD.76.013009",
+    journal="Phys. Rev. D 76, 013009 (2007)",
     abstract="Line one.\n  wrapped   with   odd spacing\nand a colon: here.",
+    source=arxiv_metadata.METADATA_SOURCE_ARXIV,
 )
 
 
@@ -124,13 +128,26 @@ def test_absent_doi_renders_as_bare_null_key():
     assert 'doi: ""' not in fm
 
 
-def test_the_journal_key_is_not_part_of_the_schema():
-    # DataCite's record carries no journal-reference string, so a `journal`
-    # key could only ever be null and would read as a confirmed absence.
-    assert "journal" not in _fm(_FULL)
-    assert "journal" not in {
-        f.name for f in arxiv_metadata.dataclasses.fields(ArxivMetadata)
-    }
+def test_the_journal_key_reads_against_the_source_that_answered():
+    # Only arXiv's record carries a journal reference. Under `datacite` the key
+    # is null because that record has no such field, which is why the source is
+    # in the frontmatter next to it.
+    from_arxiv = _parse(_fm(_FULL))
+    assert from_arxiv["journal"] == "Phys. Rev. D 76, 013009 (2007)"
+    assert from_arxiv["metadata_source"] == arxiv_metadata.METADATA_SOURCE_ARXIV
+
+    from_datacite = _parse(
+        _fm(ArxivMetadata(title="T", source=arxiv_metadata.METADATA_SOURCE_DATACITE))
+    )
+    assert from_datacite["journal"] is None
+    assert from_datacite["metadata_source"] == arxiv_metadata.METADATA_SOURCE_DATACITE
+
+
+def test_a_record_no_source_backs_renders_the_source_null():
+    # The PDF path builds a record from the PDF's own title; nothing read it
+    # from arXiv or DataCite, and the null says so.
+    parsed = _parse(_fm(ArxivMetadata(title="From PDF"), source_type="pdf"))
+    assert parsed["metadata_source"] is None
 
 
 def test_absent_arxiv_id_renders_as_null():
@@ -164,7 +181,9 @@ def test_full_metadata_round_trips():
     assert parsed["primary_category"] == "quant-ph"
     assert parsed["categories"] == ["quant-ph", "cond-mat.str-el"]
     assert parsed["doi"] == "10.1103/PhysRevD.76.013009"
+    assert parsed["journal"] == "Phys. Rev. D 76, 013009 (2007)"
     assert parsed["source_type"] == "latex"
+    assert parsed["metadata_source"] == arxiv_metadata.METADATA_SOURCE_ARXIV
     # Abstract is whitespace-normalized to a single paragraph.
     assert parsed["abstract"] == "Line one. wrapped with odd spacing and a colon: here."
 
@@ -245,33 +264,160 @@ def test_non_printable_characters_are_stripped_and_yaml_stays_valid():
     assert parsed["abstract"] == "CleanAbstract"
 
 
-# --- lookup: the transport and DataCite's records ---------------------------
+# --- lookup: the transport, arXiv's feed and DataCite's records -------------
+
+_ATOM_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2606.09995v2</id>
+    <title>A Study of Things</title>
+    <published>2026-06-08T00:00:00Z</published>
+    <summary>An abstract.</summary>
+    <author><name>Chiara Capecci</name></author>
+    <arxiv:primary_category term="quant-ph"/>
+    <category term="quant-ph"/>
+    <category term="cond-mat.str-el"/>
+    <arxiv:doi>10.1103/PhysRevD.76.013009</arxiv:doi>
+    <arxiv:journal_ref>Phys. Rev. D 76, 013009 (2007)</arxiv:journal_ref>
+  </entry>
+</feed>
+"""
+
+_ATOM_NO_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"></feed>
+"""
+
+_ATOM_ERROR_ENTRY = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/api/errors#incorrect_id_format</id>
+    <title>Error</title>
+    <summary>incorrect id format for nonsense</summary>
+  </entry>
+</feed>
+"""
 
 
 @pytest.fixture
 def transport(monkeypatch):
-    """Replace the HTTP transport so no test reaches DataCite.
+    """Replace the HTTP transport so no test reaches arXiv or DataCite.
 
-    ``install`` takes the outcome of the request: bytes (the body
-    ``fetch_metadata`` will parse), an exception instance (raised in place of
-    the request), or a callable returning a response. It returns the list the
-    requested URLs are appended to.
+    ``install`` takes the DataCite leg's outcome and, optionally, the arXiv
+    leg's: bytes (a body the lookup parses), an exception instance (raised in
+    place of the request), or a callable returning a response. A test that
+    installs no arXiv outcome gets a failing arXiv leg, which is what puts the
+    DataCite leg under test. It returns the list the requested URLs are
+    appended to, arXiv's first.
     """
     requested: list[str] = []
 
-    def install(outcome):
-        def fake_urlopen(url, timeout=None):
-            requested.append(url)
+    def install(datacite, arxiv=None):
+        if arxiv is None:
+            arxiv = OSError("this test installed no arXiv outcome")
+
+        def respond(outcome):
             if isinstance(outcome, BaseException):
                 raise outcome
             if callable(outcome):
                 return outcome()
             return io.BytesIO(outcome)
 
+        def fake_urlopen(url, timeout=None):
+            requested.append(url)
+            on_arxiv = url.startswith(arxiv_metadata._ARXIV_API_URL)
+            return respond(arxiv if on_arxiv else datacite)
+
         monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
         return requested
 
     return install
+
+
+def _datacite_requests(requested: list[str]) -> list[str]:
+    return [url for url in requested if url.startswith(arxiv_metadata._DATACITE_URL)]
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    from email.message import Message
+
+    return urllib.error.HTTPError(
+        "https://api.datacite.org", code, "msg", Message(), io.BytesIO()
+    )
+
+
+# --- lookup: arXiv's feed, and the fallback to DataCite ---------------------
+
+
+def test_the_arxiv_record_maps_onto_the_frontmatter_fields(transport):
+    requested = transport(b"unused", arxiv=_ATOM_ENTRY)
+    result = fetch_metadata("2606.09995")
+
+    assert requested == [arxiv_metadata._ARXIV_API_URL + "?id_list=2606.09995"], (
+        "arXiv is asked first, and its answer ends the lookup"
+    )
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.title == "A Study of Things"
+    assert result.metadata.authors == ["Chiara Capecci"]
+    assert result.metadata.version == "2606.09995v2"
+    assert result.metadata.published == "2026-06-08"
+    assert result.metadata.primary_category == "quant-ph"
+    assert result.metadata.categories == ["quant-ph", "cond-mat.str-el"]
+    assert result.metadata.doi == "10.1103/PhysRevD.76.013009"
+    assert result.metadata.journal == "Phys. Rev. D 76, 013009 (2007)"
+    assert result.metadata.abstract == "An abstract."
+    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_ARXIV
+
+
+@pytest.mark.parametrize(
+    ("arxiv_outcome", "cause"),
+    [
+        (_http_error(429), "arXiv rate-limited the request (HTTP 429)"),
+        (_http_error(503), "arXiv server error (HTTP 503)"),
+        (_http_error(403), "HTTP 403"),
+        (OSError("connection reset"), "OSError: connection reset"),
+        (b"<feed>not closed", "arXiv returned malformed XML: "),
+        (_ATOM_NO_ENTRY, "arXiv returned no record for this id"),
+        (_ATOM_ERROR_ENTRY, "incorrect id format for nonsense"),
+    ],
+    ids=["429", "5xx", "other-http", "os-error", "malformed-xml", "no-entry", "error"],
+)
+def test_datacite_answers_when_arxiv_does_not(transport, arxiv_outcome, cause):
+    requested = transport(_record("2409.03108"), arxiv=arxiv_outcome)
+    result = fetch_metadata("2409.03108")
+
+    assert _datacite_requests(requested) == [
+        arxiv_metadata._DATACITE_URL + "2409.03108"
+    ]
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+    assert cause  # the arXiv leg's cause, kept for the both-failed message
+
+
+def test_a_failure_on_both_sources_names_what_each_one_said(transport):
+    transport(_http_error(404), arxiv=_http_error(429))
+    result = fetch_metadata("2606.09995")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.failure_cause == (
+        "arXiv: arXiv rate-limited the request (HTTP 429); "
+        "DataCite: DataCite has no record for 10.48550/arXiv.2606.09995 (HTTP 404)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("id_url", "version"),
+    [
+        ("http://arxiv.org/abs/2409.03108v2", "2409.03108v2"),
+        ("http://arxiv.org/abs/hep-th/9901001v3", "hep-th/9901001v3"),
+        ("http://[unclosed", "[unclosed"),
+        (None, None),
+    ],
+    ids=["canonical", "legacy", "unparseable-url", "absent"],
+)
+def test_the_version_comes_from_the_entry_id_tail(id_url, version):
+    assert arxiv_metadata.parse_version_from_id(id_url) == version
 
 
 @pytest.mark.parametrize(
@@ -350,7 +496,7 @@ def test_a_datacite_record_maps_onto_the_frontmatter_fields(
     requested = transport(_record(arxiv_id))
     result = fetch_metadata(arxiv_id)
 
-    assert requested == [arxiv_metadata._API_URL + arxiv_id]
+    assert _datacite_requests(requested) == [arxiv_metadata._DATACITE_URL + arxiv_id]
     assert result.status == METADATA_OK
     assert result.metadata is not None
     for field_name, value in expected.items():
@@ -397,7 +543,9 @@ def test_a_requested_revision_is_recorded_and_looked_up_by_the_bare_id(
 ):
     requested = transport(_record("2409.03108"))
     result = fetch_metadata(f"2409.03108v{revision}")
-    assert requested == [arxiv_metadata._API_URL + "2409.03108"]
+    assert _datacite_requests(requested) == [
+        arxiv_metadata._DATACITE_URL + "2409.03108"
+    ]
     assert result.status == METADATA_OK
     assert result.metadata is not None
     assert result.metadata.version == f"2409.03108v{revision}"
@@ -418,9 +566,9 @@ def test_a_legacy_subject_class_is_left_out_of_the_doi_looked_up(
     # 10.48550/arXiv.math/0309136.
     requested = transport(_http_error(404))
     result = fetch_metadata(arxiv_id)
-    assert requested == [arxiv_metadata._API_URL + doi_id]
-    assert result.error == (
-        f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
+    assert _datacite_requests(requested) == [arxiv_metadata._DATACITE_URL + doi_id]
+    assert result.failure_cause.endswith(
+        f"DataCite: DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
     )
 
 
@@ -438,9 +586,9 @@ def test_a_requested_revision_beyond_the_record_is_unavailable(transport):
     transport(_record("2409.03108"))
     result = fetch_metadata("2409.03108v3")
     assert result.status == METADATA_UNAVAILABLE
-    assert result.error == (
-        "2409.03108v3 is later than v2, the latest revision DataCite lists for "
-        "2409.03108"
+    assert result.failure_cause.endswith(
+        "DataCite: 2409.03108v3 is later than v2, the latest revision DataCite "
+        "lists for 2409.03108"
     )
 
 
@@ -500,7 +648,7 @@ def test_a_record_with_wrongly_shaped_fields_parses_to_empty_fields():
         "descriptions": [["Abstract"]],
     }
     meta = arxiv_metadata._parse_record("2001.00001", attributes)
-    assert meta == ArxivMetadata()
+    assert meta == ArxivMetadata(source=arxiv_metadata.METADATA_SOURCE_DATACITE)
 
 
 def test_the_first_non_empty_title_is_taken():
@@ -576,14 +724,6 @@ def test_a_record_without_an_abstract_description_has_a_null_abstract():
 # --- lookup: failures, each with its own cause ------------------------------
 
 
-def _http_error(code: int) -> urllib.error.HTTPError:
-    from email.message import Message
-
-    return urllib.error.HTTPError(
-        "https://api.datacite.org", code, "msg", Message(), io.BytesIO()
-    )
-
-
 @pytest.mark.parametrize(
     ("outcome", "cause"),
     [
@@ -620,7 +760,7 @@ def test_each_failure_is_unavailable_with_its_own_cause(transport, outcome, caus
     result = fetch_metadata("2606.09995")
     assert result.status == METADATA_UNAVAILABLE
     assert result.metadata is None
-    assert result.error == cause
+    assert result.failure_cause.endswith(f"DataCite: {cause}")
 
 
 @pytest.mark.parametrize("body", [b"{not json", b"\xff\xfe\xfa"], ids=["json", "utf-8"])
@@ -628,7 +768,7 @@ def test_an_unparseable_body_is_unavailable(transport, body):
     transport(body)
     result = fetch_metadata("2606.09995")
     assert result.status == METADATA_UNAVAILABLE
-    assert result.failure_cause.startswith("DataCite returned malformed JSON: ")
+    assert "DataCite: DataCite returned malformed JSON: " in result.failure_cause
 
 
 def test_an_unanticipated_exception_in_the_lookup_is_still_unavailable(
@@ -642,6 +782,8 @@ def test_an_unanticipated_exception_in_the_lookup_is_still_unavailable(
     monkeypatch.setattr(arxiv_metadata, "_parse_record", boom)
     result = fetch_metadata("2409.03108")
     assert result.status == METADATA_UNAVAILABLE
+    # An exception no leg anticipated leaves the chain, so the worker's handler
+    # reports it on its own rather than alongside the other leg's cause.
     assert result.error == "RuntimeError: boom"
 
 
@@ -759,21 +901,25 @@ def test_a_deadline_that_cannot_bound_the_lookup_is_rejected(deadline, monkeypat
 def test_the_largest_accepted_deadline_is_timeout_max(transport):
     transport(OSError("offline"))
     result = fetch_metadata("2409.03108", deadline=threading.TIMEOUT_MAX)
-    assert result.error == "OSError: offline"
+    assert result.failure_cause.endswith("DataCite: OSError: offline")
 
 
-def test_the_request_uses_the_deadline_as_its_socket_timeout(monkeypatch):
+def test_each_leg_is_given_its_share_of_the_deadline_as_a_socket_timeout(monkeypatch):
     # A request that stalls outright ends on its own only because urlopen
-    # receives the deadline as its timeout.
-    timeouts: list[object] = []
+    # receives a timeout. The arXiv leg gets a share of the deadline so a slow
+    # failure there cannot spend what the DataCite leg needs.
+    timeouts: list[float] = []
 
     def fake_urlopen(url, timeout=None):
+        assert timeout is not None, "every leg passes its budget as the timeout"
         timeouts.append(timeout)
         raise OSError("offline")
 
     monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
     fetch_metadata("2409.03108", deadline=0.75)
-    assert timeouts == [0.75]
+    assert timeouts[0] == 0.75 * arxiv_metadata._ARXIV_DEADLINE_SHARE
+    assert 0 < timeouts[1] <= 0.75
+    assert len(timeouts) == 2
 
 
 @pytest.mark.parametrize(
@@ -842,7 +988,9 @@ _GOOD_METADATA = {
     "primary_category": None,
     "categories": [],
     "doi": None,
+    "journal": None,
     "abstract": None,
+    "source": None,
 }
 
 
@@ -884,7 +1032,7 @@ def _with_metadata(**fields) -> dict:
             **_handoff(),
             "fetch": {
                 **_handoff()["fetch"],
-                "metadata": {**_GOOD_METADATA, "journal": None},
+                "metadata": {**_GOOD_METADATA, "bogus": None},
             },
         },
     ],

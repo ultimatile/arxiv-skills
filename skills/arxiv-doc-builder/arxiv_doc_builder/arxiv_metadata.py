@@ -7,8 +7,11 @@ paper by both conversion paths (``convert_latex.py`` and the PDF path through
 downstream consumer reads, so it must carry the same key set regardless of
 which path produced it or whether the network was reachable.
 
-The record read is the one arXiv registers at DataCite for the paper's DOI,
-``10.48550/arXiv.<id>``.
+The record comes from arXiv's own Atom API. When that does not answer with one
+— a rate limit, an outage, a malformed feed — the lookup falls back to the
+registration arXiv files at DataCite for the paper's DOI,
+``10.48550/arXiv.<id>``. ``ArxivMetadata.source`` records which of the two
+answered, and the frontmatter carries it as ``metadata_source``.
 
 Design constraints:
 
@@ -20,10 +23,12 @@ Design constraints:
 - **The schema is total.** ``build_frontmatter`` always emits every key, even
   when the lookup failed. Unknown values render as YAML null (a bare
   ``key:``), which a parser reads as ``None``.
-- **A null is read together with ``metadata_status``.** Only under ``ok`` does a
-  null confirm an absence from DataCite's record. Under the other tokens no
-  usable record was read, and the null reports ignorance. See
-  ``references/output-format.md``.
+- **A null is read together with ``metadata_status`` and ``metadata_source``.**
+  Only under ``ok`` does a null confirm an absence, and only from the record
+  ``metadata_source`` names: DataCite's registration carries no journal
+  reference, so ``journal`` is null under ``datacite`` whatever the paper's
+  publication history. Under the other status tokens no usable record was read
+  at all, and the null reports ignorance. See ``references/output-format.md``.
 - **The wait for the lookup is bounded.** Metadata is secondary to the
   Markdown, so ``fetch_metadata`` gives up after a deadline and reports
   ``unavailable`` rather than holding the conversion.
@@ -41,20 +46,41 @@ import html
 import json
 import re
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-# DataCite's REST endpoint for one DOI. arXiv registers every paper under the
-# 10.48550 prefix, and DataCite matches the suffix case-insensitively.
-_API_URL = "https://api.datacite.org/dois/10.48550/arxiv."
+# arXiv's own Atom API, the source asked first. It answers out of the system the
+# source and PDF downloads come from, so the revision it reports is the revision
+# those downloads serve.
+_ARXIV_API_URL = "https://export.arxiv.org/api/query"
+
+# The Atom feed's namespaces. arXiv's extension carries primary_category, doi
+# and journal_ref; everything else is plain Atom.
+_NS = {
+    "atom": "http://www.w3.org/2005/Atom",
+    "arxiv": "http://arxiv.org/schemas/atom",
+}
+
+# DataCite's REST endpoint for one DOI, the fallback source. arXiv registers
+# every paper under the 10.48550 prefix, and DataCite matches the suffix
+# case-insensitively.
+_DATACITE_URL = "https://api.datacite.org/dois/10.48550/arxiv."
 
 # Default upper bound, in seconds, on how long ``fetch_metadata`` waits for the
-# lookup.
+# lookup — both attempts together.
 METADATA_DEADLINE_SECONDS = 5.0
+
+# The share of that budget the arXiv attempt may spend before the DataCite
+# attempt gets what is left. arXiv's rate-limit response has been observed
+# arriving anywhere from 0.26 s to 124 s after the request, so a first attempt
+# that could spend the whole budget would leave the fallback none.
+_ARXIV_DEADLINE_SHARE = 0.6
 
 # The ``metadata_status`` frontmatter vocabulary. Anything that keeps a usable
 # record from being read gives ``unavailable``, and the warning says what did.
@@ -63,6 +89,15 @@ METADATA_UNAVAILABLE = "unavailable"
 METADATA_NOT_REQUESTED = "not_requested"
 
 METADATA_STATUSES = (METADATA_OK, METADATA_UNAVAILABLE, METADATA_NOT_REQUESTED)
+
+# Which source supplied the record, reported in the frontmatter as
+# ``metadata_source``. The two records do not carry the same fields — only
+# arXiv's has a journal reference — so a null under ``ok`` is read against the
+# source that answered.
+METADATA_SOURCE_ARXIV = "arxiv"
+METADATA_SOURCE_DATACITE = "datacite"
+
+METADATA_SOURCES = (METADATA_SOURCE_ARXIV, METADATA_SOURCE_DATACITE)
 
 # What a fetch can report. ``not_requested`` is a frontmatter token for a
 # document nobody asked for a record about, and no fetch produces it.
@@ -104,7 +139,13 @@ class ArxivMetadata:
     primary_category: Optional[str] = None
     categories: list[str] = field(default_factory=list)
     doi: Optional[str] = None
+    journal: Optional[str] = None
     abstract: Optional[str] = None
+    # Which record this was read from, one of ``METADATA_SOURCES``. ``None`` in
+    # an instance no record backs, such as the one the PDF path builds from a
+    # PDF's own title. DataCite's record carries no journal reference, so
+    # ``journal`` is always ``None`` under ``datacite``.
+    source: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -336,10 +377,122 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
         categories=categories,
         doi=" ".join(dois) or None,
         abstract=abstract,
+        source=METADATA_SOURCE_DATACITE,
     )
 
 
-def _http_cause(code: int, bare_id: str) -> str:
+def _atom_text(entry: ET.Element, path: str) -> Optional[str]:
+    """The text of the first matching child element, or ``None``."""
+    el = entry.find(path, _NS)
+    return el.text if el is not None else None
+
+
+def parse_version_from_id(id_url: Optional[str]) -> Optional[str]:
+    """Extract the full versioned arXiv id from an Atom ``<id>`` URL.
+
+    Returns the path tail *including* the version suffix, which is what the
+    version-drift sidecar persists, so ``fetch_paper`` can compare the two
+    directly. Returns ``None`` when no tail is present.
+
+        <id>http://arxiv.org/abs/2409.03108v2</id>     -> "2409.03108v2"
+        <id>http://arxiv.org/abs/hep-th/9901001v3</id> -> "hep-th/9901001v3"
+    """
+    if not id_url:
+        return None
+    try:
+        path = urllib.parse.urlparse(id_url).path
+    except ValueError:
+        # A malformed authority (unclosed IPv6 bracket) raises here. Fall
+        # through to the tail split, which needs no parsed path.
+        path = ""
+    if path.startswith("/abs/"):
+        return path[len("/abs/") :] or None
+    return id_url.rsplit("/", 1)[-1] or None
+
+
+def _is_error_entry(entry: ET.Element) -> bool:
+    """Whether the entry is arXiv's error report instead of a paper record.
+
+    A malformed id does not give an empty feed. arXiv answers with one entry
+    titled ``Error`` whose ``<id>`` points under ``/api/errors``, and whose
+    author and summary read like a record. The path is what this checks.
+    """
+    try:
+        path = urllib.parse.urlparse(_atom_text(entry, "atom:id") or "").path
+    except ValueError:
+        return False
+    return path.startswith("/api/errors")
+
+
+def _parse_entry(entry: ET.Element) -> ArxivMetadata:
+    """Map one Atom entry onto the frontmatter fields.
+
+    The text goes through ``_normalize`` rather than ``_prose``: an XML parser
+    has already decoded the entities, and decoding a second time would turn a
+    title that spells "&gt;" literally into ">".
+    """
+    primary = entry.find("arxiv:primary_category", _NS)
+    published = _CALENDAR_DATE.match(_atom_text(entry, "atom:published") or "")
+    return ArxivMetadata(
+        title=_normalize(_atom_text(entry, "atom:title")),
+        authors=[
+            name
+            for name in (
+                _normalize(n.text) for n in entry.findall("atom:author/atom:name", _NS)
+            )
+            if name
+        ],
+        version=parse_version_from_id(_atom_text(entry, "atom:id")),
+        published=published.group() if published else None,
+        primary_category=primary.get("term") if primary is not None else None,
+        categories=[
+            term
+            for term in (c.get("term") for c in entry.findall("atom:category", _NS))
+            if term
+        ],
+        doi=_normalize(_atom_text(entry, "arxiv:doi")),
+        journal=_normalize(_atom_text(entry, "arxiv:journal_ref")),
+        abstract=_normalize(_atom_text(entry, "atom:summary")),
+        source=METADATA_SOURCE_ARXIV,
+    )
+
+
+def _arxiv_http_cause(code: int) -> str:
+    if code == 429:
+        return "arXiv rate-limited the request (HTTP 429)"
+    if 500 <= code <= 599:
+        return f"arXiv server error (HTTP {code})"
+    return f"HTTP {code}"
+
+
+def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
+    """One request to arXiv's Atom API and the classification of its outcome."""
+    url = _ARXIV_API_URL + "?" + urllib.parse.urlencode({"id_list": arxiv_id})
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            tree = ET.parse(resp)
+    except urllib.error.HTTPError as exc:
+        # HTTPError subclasses URLError, so it must be caught first.
+        return _unavailable(_arxiv_http_cause(exc.code))
+    except urllib.error.URLError as exc:
+        return _unavailable(f"URLError: {exc.reason}")
+    except OSError as exc:
+        return _unavailable(_cause(exc))
+    except ET.ParseError as exc:
+        return _unavailable(f"arXiv returned malformed XML: {exc}")
+
+    entry = tree.find(".//atom:entry", _NS)
+    if entry is None:
+        return _unavailable("arXiv returned no record for this id")
+    if _is_error_entry(entry):
+        return _unavailable(
+            _normalize(_atom_text(entry, "atom:summary"))
+            or "arXiv reported an error for this id"
+        )
+    return MetadataFetch(METADATA_OK, metadata=_parse_entry(entry))
+
+
+def _datacite_http_cause(code: int, bare_id: str) -> str:
     if code == 404:
         return f"DataCite has no record for 10.48550/arXiv.{bare_id} (HTTP 404)"
     if code == 429:
@@ -349,7 +502,7 @@ def _http_cause(code: int, bare_id: str) -> str:
     return f"HTTP {code}"
 
 
-def _lookup(arxiv_id: str, timeout: float) -> MetadataFetch:
+def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     """One request to DataCite and the classification of its outcome.
 
     Returns ``unavailable`` with a cause for every failure it anticipates. An
@@ -358,13 +511,13 @@ def _lookup(arxiv_id: str, timeout: float) -> MetadataFetch:
     """
     bare_id, requested = _split_version(arxiv_id)
     doi_id = _SUBJECT_CLASS.sub(r"\1/", bare_id)
-    url = _API_URL + urllib.parse.quote(doi_id, safe="/")
+    url = _DATACITE_URL + urllib.parse.quote(doi_id, safe="/")
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
         # HTTPError subclasses URLError, so it must be caught first.
-        return _unavailable(_http_cause(exc.code, doi_id))
+        return _unavailable(_datacite_http_cause(exc.code, doi_id))
     except urllib.error.URLError as exc:
         return _unavailable(f"URLError: {exc.reason}")
     except OSError as exc:
@@ -388,6 +541,38 @@ def _lookup(arxiv_id: str, timeout: float) -> MetadataFetch:
             f"DataCite lists for {bare_id}"
         )
     return MetadataFetch(METADATA_OK, metadata=_parse_record(arxiv_id, attributes))
+
+
+def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
+    """arXiv's record, or DataCite's when arXiv does not supply one.
+
+    arXiv is asked first because its record and the downloaded files come from
+    the same system: the revision it reports is the revision ``fetch_paper``
+    then downloads, and it carries a journal reference, which DataCite's
+    registration does not. DataCite answers when arXiv cannot — a rate limit,
+    an outage, a malformed feed — which is what keeps a run that would
+    otherwise record nothing supplied with a record.
+
+    The arXiv attempt may spend only ``_ARXIV_DEADLINE_SHARE`` of ``deadline``,
+    so the fallback still has time to answer. When both fail, the returned
+    cause names what each of them said.
+    """
+    started = time.monotonic()
+    primary = _lookup_arxiv(arxiv_id, deadline * _ARXIV_DEADLINE_SHARE)
+    if primary.status == METADATA_OK:
+        return primary
+
+    remaining = deadline - (time.monotonic() - started)
+    if remaining <= 0:
+        return _unavailable(
+            f"arXiv: {primary.failure_cause}; no time left to ask DataCite"
+        )
+    fallback = _lookup_datacite(arxiv_id, remaining)
+    if fallback.status == METADATA_OK:
+        return fallback
+    return _unavailable(
+        f"arXiv: {primary.failure_cause}; DataCite: {fallback.failure_cause}"
+    )
 
 
 def fetch_metadata(
@@ -414,10 +599,14 @@ def fetch_metadata(
     can outlive the call, and being a daemon keeps it from holding the process
     open.
 
-    Assumes ``arxiv_id`` is already validated to canonical form. An id that
-    names a revision is looked up by its bare form, since DataCite holds one
-    record per paper, and a legacy id that names a subject class is looked up
-    by its archive alone, the form arXiv registers the DOI under.
+    The record comes from arXiv's own API, or from DataCite when arXiv does not
+    answer with one; ``ArxivMetadata.source`` says which, and ``_lookup``
+    explains the order.
+
+    Assumes ``arxiv_id`` is already validated to canonical form. On the
+    DataCite leg an id that names a revision is looked up by its bare form,
+    since DataCite holds one record per paper, and a legacy id that names a
+    subject class by its archive alone, the form arXiv registers the DOI under.
     """
     # Checked before the worker starts. Decimal and Fraction pass the range
     # check below but make worker.join raise once the request is running.
@@ -468,7 +657,9 @@ _HANDOFF_SCALARS = (
     "published",
     "primary_category",
     "doi",
+    "journal",
     "abstract",
+    "source",
 )
 _HANDOFF_LISTS = ("authors", "categories")
 
@@ -582,7 +773,7 @@ def format_unavailable_warning(arxiv_id: str, *, cause: str) -> str:
     instead of printing it leaves the destination to the caller.
     """
     return (
-        f"WARNING: no usable DataCite record for {arxiv_id}: {cause}\n"
+        f"WARNING: no usable metadata record for {arxiv_id}: {cause}\n"
         "  The frontmatter fields that record supplies are left null. Those "
         "nulls mean the value is unknown, not that the record has none.\n"
         "  The document's frontmatter records "
@@ -670,6 +861,10 @@ def build_frontmatter(
     ``arxiv_id`` is optional. Manual PDF scripts invoke the converter without
     one, and it then renders as null with ``metadata_status`` ``not_requested``.
 
+    ``metadata_source`` is not a parameter: it comes from ``meta.source``, so a
+    record renders under the source it was read from, and a document no record
+    backs renders it null.
+
     ``metadata_status`` cannot be derived from ``meta`` here. The PDF path
     passes a record built from the PDF's own title when the lookup failed,
     which makes a non-``None`` ``meta`` compatible with every status. Both it
@@ -707,8 +902,10 @@ def build_frontmatter(
         _scalar_line("primary_category", m.primary_category),
         _list_lines("categories", m.categories),
         _scalar_line("doi", m.doi),
+        _scalar_line("journal", m.journal),
         _scalar_line("source_type", source_type),
         _scalar_line("metadata_status", metadata_status),
+        _scalar_line("metadata_source", m.source),
         _scalar_line("conversion_date", conversion_date),
         _block_lines("abstract", _normalize(m.abstract)),
         "---",
