@@ -34,26 +34,26 @@ _METADATA_FILE = ".arxiv-fetch.json"
 
 
 def _probe_metadata(arxiv_id: str) -> MetadataFetch:
-    """Query the arXiv API for the record the drift check reads.
+    """Look up the record the drift check reads.
 
-    Returns the whole outcome, not just a version string. An unreachable API
-    and a record without a version tail both leave the sidecar unwritten, and
-    only the outcome tells them apart.
+    Returns the whole outcome, not just a version string. A failed lookup and a
+    record without a version both leave the sidecar unwritten, and only the
+    outcome tells them apart.
 
-    Delegates to ``fetch_metadata`` for the Atom request. ``_latest_version``
-    reads the version out. A short timeout keeps the pre-fetch probe light.
+    Delegates to ``fetch_metadata``, which bounds how long it waits for the
+    lookup. ``_latest_version`` reads the version out.
 
     Assumes ``arxiv_id`` has already been validated to canonical form by
     ``validate_arxiv_id``. No zero-padding happens here.
     """
-    return fetch_metadata(arxiv_id, timeout=5)
+    return fetch_metadata(arxiv_id)
 
 
 def _latest_version(probe: MetadataFetch) -> Optional[str]:
     """The version string the probe reports, or ``None`` when it reports none.
 
-    The rest of this module reads ``None`` as "no usable answer from the API",
-    whether the request failed or the record carried no version tail.
+    The rest of this module reads ``None`` as "no usable answer from the
+    lookup", whether the lookup failed or the record carried no version.
     """
     return probe.metadata.version if probe.metadata else None
 
