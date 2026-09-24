@@ -26,7 +26,8 @@ outcome of the lookup stops the conversion.
 
 For the fields a record supplies — `published`, `categories`, `doi`, `journal`,
 `abstract` — a value is present exactly when the answering record supplied one
-the converter could parse and retain, and null otherwise. **The document says
+the converter could parse and retain, and otherwise the field is empty, as the
+paragraph above renders it. **The document says
 nothing further about what a null implies about the paper.** Whether a paper
 is published, for instance, is a bibliographic question this converter does
 not answer; the arxiv-lookup skill is where that belongs.
@@ -79,9 +80,10 @@ Field notes:
   first revision's date. Which revision the other fields describe depends on
   the source that answered — arXiv is asked for the revision requested and
   returns its entry, while DataCite holds one record per paper and its fields
-  follow that paper's latest revision. The revision the fetch step keeps on
-  disk is the one `.arxiv-fetch.json` records; `SKILL.md` states when the two
-  can differ.
+  follow that paper's latest revision. `version` can also name a revision other
+  than the one converted: the fetch step converts the revision
+  `.arxiv-fetch.json` records, and `SKILL.md` states when that differs from
+  the one the answering record names.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
 - `doi` holds the published DOIs the answering record carries, spelled as that
@@ -102,8 +104,8 @@ Field notes:
 - Two fields survive on local sources when no record backs the document.
   `title` comes from the LaTeX `\title` or the PDF's embedded title on either
   path, and `authors` from the PDF's embedded author on the PDF path, staying
-  null on the LaTeX path. Every other record-supplied field renders as null,
-  and `categories` as `[]`. A populated `title` or `authors` is therefore no
+  null on the LaTeX path. Every other record-supplied field is empty, rendered
+  as the top of this section describes. A populated `title` or `authors` is therefore no
   evidence that a record was read, and `metadata_status` is what answers that.
 
 ## Body Structure

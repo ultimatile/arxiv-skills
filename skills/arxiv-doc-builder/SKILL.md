@@ -60,7 +60,7 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
   from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
 
 The orchestrator:
-1. Looks the paper's metadata record up once and hands the result to the steps below. Two sources can supply that record — arXiv's own API, and DataCite, where arXiv registers a DOI for every paper. `references/output-format.md` states which is asked when, what bounds the wait, and how the frontmatter's `metadata_status` records the outcome
+1. Looks the paper's metadata record up once and hands the result to the steps below. Two sources can supply that record — arXiv's own API, and DataCite, where arXiv registers a DOI for every paper. `references/output-format.md` states which is asked when, that the wait for them is bounded, and how the frontmatter's `metadata_status` records the outcome
 2. Calls `fetch_paper.py` to download available materials — source if available + PDF. Files already downloaded are reused, except in the case described under Re-download of cached files below
 3. Detects available format (LaTeX source or PDF)
 4. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
@@ -72,7 +72,7 @@ The metadata lookup, downloads (curl), file extraction (tar), and directory crea
 
 When the metadata lookup reports a version that `.arxiv-fetch.json` does not already record, the fetch step does not reuse the cached files. It deletes the cached `source/` directory, including any edit made to it, and downloads the source and the PDF again. A failed PDF download also removes the cached PDF.
 
-One case is exempt, and all four of its conditions hold together: the id was given without a version, a source is cached on disk, `.arxiv-fetch.json` already records a later revision of the same paper, and the record that answered was DataCite's. DataCite lists a new revision a few hours after arXiv announces it, so its record can trail what arXiv serves; the fetch step then keeps and converts the recorded revision and deletes nothing. When arXiv itself answered, the revision it names is authoritative and a later recorded one is replaced.
+One case is exempt, and all four of its conditions hold together: the id was given without a version, a source is cached on disk, `.arxiv-fetch.json` already records a later revision of the same paper, and the record that answered was DataCite's. DataCite lists a new revision a few hours after arXiv announces it, so its record can trail what arXiv serves; the fetch step then keeps and converts the recorded revision and deletes nothing. The document's frontmatter still transcribes DataCite's record, so its `version` names the earlier revision the record lists, not the one converted. When arXiv itself answered, the revision it names is authoritative and a later recorded one is replaced.
 
 For a paper arXiv serves as a PDF alone, no cached source stands behind the recorded revision, so that revision follows whichever source answered: while DataCite trails a new revision, a run that falls back to it records the earlier revision and downloads that PDF again, and a later run that reaches arXiv moves both forward again. It settles once DataCite lists the new revision.
 
