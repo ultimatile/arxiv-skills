@@ -60,7 +60,7 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
   from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
 
 The orchestrator:
-1. Looks the paper's metadata record up once and hands the result to the steps below. arXiv's own API is asked first; DataCite, where arXiv registers a DOI for every paper, answers when arXiv does not — a rate limit, an outage, a malformed feed. The wait is bounded, and the conversion continues whatever the outcome, which the frontmatter records in `metadata_status` (see `references/output-format.md`)
+1. Looks the paper's metadata record up once and hands the result to the steps below. Two sources can supply that record — arXiv's own API, and DataCite, where arXiv registers a DOI for every paper. `references/output-format.md` states which is asked when, what bounds the wait, and how the frontmatter's `metadata_status` records the outcome
 2. Calls `fetch_paper.py` to download available materials — source if available + PDF. Files already downloaded are reused, except in the case described under Re-download of cached files below
 3. Detects available format (LaTeX source or PDF)
 4. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)

@@ -95,9 +95,10 @@ Field notes:
   its order. Which code of an alias pair (`math-ph` and `math.MP`, say)
   appears is likewise whatever that record lists.
 - `primary_category` is the category the answering record marks as primary.
-  Not every record marks one; where none is marked, the value is the first
-  code in `categories`, or null when there are none. A null therefore does not
-  imply that `categories` is empty.
+  Not every record marks one, and where none is marked the value is either the
+  first code in `categories` or null — which of the two depends on the source,
+  since one marks a primary category explicitly and the other does not. A null
+  therefore does not imply that `categories` is empty.
 - Two fields survive on local sources when no record backs the document.
   `title` comes from the LaTeX `\title` or the PDF's embedded title on either
   path, and `authors` from the PDF's embedded author on the PDF path, staying

@@ -11,8 +11,9 @@ The record comes from arXiv's own Atom API. When that does not answer with one
 — a rate limit, an outage, a malformed feed — the lookup falls back to the
 registration arXiv files at DataCite for the paper's DOI,
 ``10.48550/arXiv.<id>``. ``ArxivMetadata.source`` records which of the two
-answered. It stays inside the process: ``fetch_paper``'s revision handling
-branches on it, and the document does not carry it.
+answered. It travels between a run's own steps, through the handoff file, since
+``fetch_paper``'s revision handling branches on it; the document does not carry
+it.
 
 Design constraints:
 
@@ -93,10 +94,8 @@ METADATA_DEADLINE_SECONDS = 5.0
 # time. An even split therefore cuts off no healthy arXiv response and still
 # leaves the fallback well over the time it needs — at the default deadline the
 # pool is 4.5 s and each leg may draw 2.25 s of it — which matters because the
-# fallback runs exactly when the arXiv attempt spent its whole share. Measured
-# against a 15 s arXiv stall under a 5 s deadline, the split returns a record at
-# 3.46 s where a single whole-chain budget returns none at 5.01 s, never having
-# asked DataCite.
+# fallback runs exactly when the arXiv attempt spent its whole share, so a share
+# it could spend whole is what keeps the fallback reachable at all.
 _ARXIV_DEADLINE_SHARE = 0.5
 
 # The share of the deadline the two legs together may spend. The rest is
@@ -178,8 +177,8 @@ class ArxivMetadata:
     # Which record this was read from, one of ``METADATA_SOURCES``. ``None``
     # when no record backs the instance, as for the one the PDF path builds
     # from a PDF's own title. Appended last so the field order the other nine
-    # have keeps working, and read only inside the process: ``fetch_paper``
-    # needs it, the frontmatter does not carry it.
+    # have keeps working. It reaches ``fetch_paper``, which branches on it,
+    # through the handoff file; the frontmatter does not carry it.
     source: Optional[str] = None
 
 
@@ -510,7 +509,7 @@ def _identity_cause(record: ArxivMetadata, query: str) -> Optional[str]:
     """Why ``record`` does not describe ``query``, or ``None`` when it does.
 
     A feed naming another paper parses exactly like one naming this paper, so
-    the entry has to identify itself before its fields are read. Three things
+    the entry has to identify itself before its fields are read. Four things
     are required: an entry id whose tail parses, that tail naming a revision
     (``v<N>``), the bare id equalling the one queried, and — when the query
     named a revision — that revision.
@@ -606,8 +605,9 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
 
 
 def _datacite_http_cause(code: int, doi_id: str) -> str:
-    # ``doi_id`` is the id as the DOI spells it — the archive alone for a
-    # legacy id — which is not the same string as the caller's ``bare_id``.
+    # ``doi_id`` is the id as the DOI spells it. For a legacy id naming a
+    # subject class that is the archive alone, and so not the caller's
+    # ``bare_id``; for every other id the two coincide.
     if code == 404:
         return f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
     if code == 429:
