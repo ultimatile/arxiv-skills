@@ -24,6 +24,7 @@ try:
         build_frontmatter,
         fetch_metadata,
         format_unavailable_warning,
+        resolve_metadata,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -35,6 +36,7 @@ except ModuleNotFoundError as _exc:
         build_frontmatter,
         fetch_metadata,
         format_unavailable_warning,
+        resolve_metadata,
     )
 
 
@@ -257,6 +259,8 @@ def convert_pdf_to_markdown(
     pages_to_extract: Optional[Set[int]] = None,
     double_column_pages: Optional[Set[int]] = None,
     arxiv_id: Optional[str] = None,
+    *,
+    metadata_handoff: Optional[Path] = None,
 ) -> None:
     """
     Convert PDF to Markdown using pdfplumber.
@@ -266,11 +270,14 @@ def convert_pdf_to_markdown(
         output_path: Path to output Markdown file
         pages_to_extract: Set of page numbers to extract (1-indexed). If None, extract all pages.
         double_column_pages: Set of page numbers to process as double-column (1-indexed)
-        arxiv_id: arXiv ID for authoritative metadata. When given, the arXiv
-            record drives the frontmatter; when omitted (manual PDF scripts) or
-            the fetch fails, the PDF's embedded title/author are used and the
-            arXiv-only fields render as null. ``metadata_status`` records
-            which of those happened.
+        arxiv_id: arXiv ID for authoritative metadata. When given, the paper's
+            metadata record drives the frontmatter; when omitted (manual PDF
+            scripts) or the lookup fails, the PDF's embedded title/author are
+            used and the record-only fields render as null.
+            ``metadata_status`` records which of those happened.
+        metadata_handoff: A lookup already made for ``arxiv_id``, written by
+            ``convert_paper``. Without one, the record is looked up here.
+            Requires ``arxiv_id``.
     """
     if double_column_pages is None:
         double_column_pages = set()
@@ -280,6 +287,8 @@ def convert_pdf_to_markdown(
     # for disagreeing with the status it produced, aborting a conversion over
     # an id that is merely absent.
     arxiv_id = arxiv_id or None
+    if metadata_handoff is not None and arxiv_id is None:
+        raise ValueError("metadata_handoff describes an arXiv id, so it needs one")
 
     print(f"Converting PDF: {pdf_path}")
     print(f"Output: {output_path}")
@@ -306,11 +315,11 @@ def convert_pdf_to_markdown(
 
         # Unified YAML frontmatter (same schema as the LaTeX path). When an
         # arXiv id is available its record is authoritative; otherwise fall
-        # back to the PDF's embedded title/author, leaving arXiv-only fields
+        # back to the PDF's embedded title/author, leaving record-only fields
         # null. The old bold "Source/Converted/Pages" header is intentionally
         # dropped in favour of this single provenance surface.
         if arxiv_id:
-            fetched = fetch_metadata(arxiv_id)
+            fetched = resolve_metadata(arxiv_id, metadata_handoff, fetch_metadata)
             metadata_status = fetched.status
             meta = fetched.metadata
             if metadata_status == METADATA_UNAVAILABLE:

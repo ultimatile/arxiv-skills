@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 # Import shared library
+from arxiv_metadata import add_metadata_handoff_option
 from pdf_converter_lib import convert_pdf_to_markdown
 
 
@@ -32,8 +33,18 @@ def main():
     parser.add_argument(
         "--arxiv-id", help="arXiv ID for authoritative frontmatter metadata (optional)"
     )
+    add_metadata_handoff_option(parser)
 
     args = parser.parse_args()
+
+    # A handoff describes one id's lookup, and --arxiv-id is optional here, so
+    # this pairing is reachable from the command line. Refused by name at the
+    # entry the user invoked: the converter refuses it too, but as a ValueError
+    # naming neither the option nor this script. Exit 1, since exit 2 belongs
+    # to the ambiguous-main-tex channel.
+    if args.metadata_handoff is not None and not args.arxiv_id:
+        print("Error: --metadata-handoff needs --arxiv-id")
+        sys.exit(1)
 
     if not args.pdf_path.exists():
         print(f"Error: PDF file not found: {args.pdf_path}")
@@ -48,6 +59,7 @@ def main():
         pages_to_extract=None,  # All pages
         double_column_pages=None,  # Single-column
         arxiv_id=args.arxiv_id,
+        metadata_handoff=args.metadata_handoff,
     )
 
 
