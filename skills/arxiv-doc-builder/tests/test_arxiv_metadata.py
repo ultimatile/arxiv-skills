@@ -25,6 +25,7 @@ import sys
 import textwrap
 import threading
 import time
+import types
 import urllib.error
 from decimal import Decimal
 from fractions import Fraction
@@ -414,9 +415,10 @@ def test_a_failure_on_both_sources_names_what_each_one_said(transport):
         ("http://arxiv.org/abs/2409.03108v2", "2409.03108v2"),
         ("http://arxiv.org/abs/hep-th/9901001v3", "hep-th/9901001v3"),
         ("http://[unclosed", "[unclosed"),
+        ("", None),
         (None, None),
     ],
-    ids=["canonical", "legacy", "unparseable-url", "absent"],
+    ids=["canonical", "legacy", "unparseable-url", "empty", "absent"],
 )
 def test_the_version_comes_from_the_entry_id_tail(id_url, version):
     assert arxiv_metadata.parse_version_from_id(id_url) == version
@@ -1124,7 +1126,10 @@ def test_a_worker_that_cannot_start_is_unavailable(monkeypatch):
     monkeypatch.setattr(arxiv_metadata.threading, "Thread", Unstartable)
     result = fetch_metadata("2409.03108")
     assert result.status == METADATA_UNAVAILABLE
-    assert result.error == "RuntimeError: can't start new thread"
+    assert result.error == (
+        "arXiv: RuntimeError: can't start new thread; "
+        "DataCite: RuntimeError: can't start new thread"
+    )
 
 
 # The test ends the worker with an uncaught SystemExit on purpose, which pytest
@@ -1134,10 +1139,14 @@ def test_a_worker_that_ends_without_a_result_is_not_reported_as_late(monkeypatch
     def exit_thread(*_args):
         raise SystemExit
 
-    monkeypatch.setattr(arxiv_metadata, "_lookup", exit_thread)
+    monkeypatch.setattr(arxiv_metadata, "_lookup_arxiv", exit_thread)
+    monkeypatch.setattr(arxiv_metadata, "_lookup_datacite", exit_thread)
     result = fetch_metadata("2409.03108", deadline=5)
     assert result.status == METADATA_UNAVAILABLE
-    assert result.error == "metadata lookup ended without a result"
+    assert result.error == (
+        "arXiv: the arXiv lookup ended without a result; "
+        "DataCite: the DataCite lookup ended without a result"
+    )
 
 
 # --- lookup: the deadline ----------------------------------------------------
@@ -1155,10 +1164,7 @@ def test_the_deadline_bounds_how_long_the_call_waits(transport):
 
     assert result.status == METADATA_UNAVAILABLE
     assert elapsed < 1.5
-    # The legs together may spend only _CHAIN_DEADLINE_SHARE of the deadline,
-    # so the chain composes its answer inside the remaining headroom and the
-    # caller learns what each source said. Without that headroom the outer
-    # bound wins the race and replaces both causes with its own timeout.
+    # Running out of time does not cost the caller what each source said.
     assert result.failure_cause.startswith("arXiv: ")
     assert "DataCite: the DataCite lookup exceeded" in result.failure_cause
 
@@ -1186,6 +1192,28 @@ def test_the_process_exits_without_waiting_for_an_abandoned_lookup():
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == METADATA_UNAVAILABLE
     assert elapsed < 10
+
+
+def test_an_arxiv_leg_that_leaves_no_time_does_not_ask_datacite(monkeypatch):
+    # The arXiv leg may spend only half the deadline, so this takes a leg that
+    # overruns its bound, as a stalled scheduler can make it; a stub clock
+    # stands in for that. What arXiv said must still reach the caller.
+    asked: list[str] = []
+
+    def fake_urlopen(url, timeout=None):
+        asked.append(url)
+        raise OSError("offline")
+
+    monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
+    clock = iter([0.0, 10.0])
+    monkeypatch.setattr(
+        arxiv_metadata, "time", types.SimpleNamespace(monotonic=lambda: next(clock))
+    )
+    result = fetch_metadata("2409.03108", deadline=5)
+    assert result.failure_cause == (
+        "arXiv: OSError: offline; no time left to ask DataCite"
+    )
+    assert len(asked) == 1
 
 
 @pytest.mark.parametrize(
@@ -1222,23 +1250,12 @@ def test_each_leg_is_given_its_share_of_the_deadline_as_a_socket_timeout(monkeyp
 
     monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
     fetch_metadata("2409.03108", deadline=0.75)
-    pool = 0.75 * arxiv_metadata._CHAIN_DEADLINE_SHARE
-    assert timeouts[0] == pool * arxiv_metadata._ARXIV_DEADLINE_SHARE
-    # Neither leg is handed the deadline itself: both draw on a pool smaller
-    # than it, which leaves the chain room to compose its answer before the
-    # outer bound fires. The legs run in sequence, so these budgets bound what
-    # each may spend, not what the two spend together — the pool bounds that.
-    assert 0 < timeouts[1] <= pool
+    assert timeouts[0] == 0.75 * arxiv_metadata._ARXIV_DEADLINE_SHARE
+    # The DataCite leg gets the time the arXiv leg left, measured rather than
+    # assumed, so a fast failure hands it nearly the whole deadline and it never
+    # gets more than that.
+    assert 0 < timeouts[1] <= 0.75
     assert len(timeouts) == 2
-
-
-def test_the_legs_may_not_spend_the_whole_deadline_between_them():
-    # The behavioural test above reports the rule only when it wins a race it
-    # is not guaranteed to win: let the legs have the whole deadline and the
-    # chain finishes just as the outer bound fires, so which answer reaches the
-    # caller is a coin toss. The rule that settles it is this one, and a
-    # strictly smaller pool is what it says, so it is asserted on its own too.
-    assert 0 < arxiv_metadata._CHAIN_DEADLINE_SHARE < 1
 
 
 @pytest.mark.parametrize(
@@ -1417,7 +1434,8 @@ def _with_metadata(**fields) -> dict:
     ],
 )
 def test_an_untrustworthy_handoff_is_unavailable_with_a_cause(tmp_path, content):
-    # The last two cases are the source: ``fetch_paper`` keeps a recorded
+    # Two cases are the source (``source-outside-the-vocabulary`` and
+    # ``ok-without-a-source``): ``fetch_paper`` keeps a recorded
     # revision over the record's only when the fallback answered, so a handoff
     # whose source is missing or outside the vocabulary would decide that rule
     # by a value no lookup produces.

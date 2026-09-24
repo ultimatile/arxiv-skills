@@ -11,9 +11,9 @@ The record comes from arXiv's own Atom API. When that does not answer with one
 — a rate limit, an outage, a malformed feed — the lookup falls back to the
 registration arXiv files at DataCite for the paper's DOI,
 ``10.48550/arXiv.<id>``. ``ArxivMetadata.source`` records which of the two
-answered. It travels between a run's own steps, through the handoff file, since
-``fetch_paper``'s revision handling branches on it; the document does not carry
-it.
+answered. ``fetch_paper``'s revision handling branches on it, and in a run
+``convert_paper`` starts it reaches that step through the handoff file; the
+document does not carry it.
 
 Design constraints:
 
@@ -85,25 +85,18 @@ _DATACITE_URL = "https://api.datacite.org/dois/10.48550/arxiv."
 # lookup — both attempts together.
 METADATA_DEADLINE_SECONDS = 5.0
 
-# The share of the legs' pool — ``_CHAIN_DEADLINE_SHARE`` of that budget, set
-# below — that the arXiv attempt may spend before the DataCite attempt gets the
-# rest of it. The two differ in shape rather than in speed: over 31 measured
-# lookups arXiv answered with a median of 0.31 s, and the few that stalled
-# answered in 0.04 s to 0.14 s when asked again, so those stalls are transient
-# and a wider share would not catch them. DataCite took 1.10 s to 1.19 s every
-# time. An even split therefore cuts off no healthy arXiv response and still
-# leaves the fallback well over the time it needs — at the default deadline the
-# pool is 4.5 s and each leg may draw 2.25 s of it — which matters because the
-# fallback runs exactly when the arXiv attempt spent its whole share, so a share
-# it could spend whole is what keeps the fallback reachable at all.
+# The share of the deadline that the arXiv attempt may spend before the
+# DataCite attempt gets the rest of it. The two differ in shape rather than in
+# speed: over 31 measured lookups arXiv answered with a median of 0.31 s, and
+# the few that stalled answered in 0.04 s to 0.14 s when asked again, so those
+# stalls are transient and a wider share would not catch them. DataCite took
+# 1.10 s to 1.19 s every time. An even split therefore cuts off no healthy
+# arXiv response and still leaves the fallback well over the time it needs. At
+# the default deadline the arXiv attempt may draw 2.5 s and the fallback gets
+# whatever is left, so at least the other 2.5 s. That floor is what matters: the
+# fallback's shortest budget comes when the arXiv attempt spent its whole share,
+# and a share it could spend whole is what keeps the fallback reachable at all.
 _ARXIV_DEADLINE_SHARE = 0.5
-
-# The share of the deadline the two legs together may spend. The rest is
-# headroom for the chain to compose its answer: both legs spending their whole
-# budgets would otherwise finish as the outer bound fires, and whichever won
-# that race would decide whether the caller learns what each source said or
-# only that the lookup ran out of time.
-_CHAIN_DEADLINE_SHARE = 0.9
 
 # The ``metadata_status`` frontmatter vocabulary. Anything that keeps a usable
 # record from being read gives ``unavailable``, and the warning says what did.
@@ -127,7 +120,7 @@ METADATA_SOURCES = (METADATA_SOURCE_ARXIV, METADATA_SOURCE_DATACITE)
 _FETCH_STATUSES = (METADATA_OK, METADATA_UNAVAILABLE)
 
 # A validated arXiv id ends in ``v<N>`` exactly when it names a revision.
-_VERSION_SUFFIX = re.compile(r"v(\d+)$")
+_VERSION_SUFFIX = re.compile(r"v(\d+)\Z")
 
 # A legacy id may name a subject class ("math.GT/0309136"). arXiv answers such
 # an id only under the archive alone ("math/0309136"), and registers the
@@ -177,8 +170,9 @@ class ArxivMetadata:
     # Which record this was read from, one of ``METADATA_SOURCES``. ``None``
     # when no record backs the instance, as for the one the PDF path builds
     # from a PDF's own title. Appended last so the field order the other nine
-    # have keeps working. It reaches ``fetch_paper``, which branches on it,
-    # through the handoff file; the frontmatter does not carry it.
+    # have keeps working. ``fetch_paper`` branches on it, reading it through the
+    # handoff file when ``convert_paper`` started it; the frontmatter does not
+    # carry it.
     source: Optional[str] = None
 
 
@@ -288,7 +282,7 @@ def _prose(text: Optional[str]) -> Optional[str]:
     return _normalize(html.unescape(text))
 
 
-def _split_version(arxiv_id: str) -> tuple[str, Optional[int]]:
+def split_version(arxiv_id: str) -> tuple[str, Optional[int]]:
     """Split a validated id into its bare form and its revision number, if any.
 
     "2409.03108v2"   -> ("2409.03108", 2)
@@ -345,7 +339,7 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
     records that revision; every other field describes the record DataCite
     holds for the paper, which follows the latest revision.
     """
-    bare_id, requested = _split_version(arxiv_id)
+    bare_id, requested = split_version(arxiv_id)
 
     title = next(
         (
@@ -529,7 +523,7 @@ def _identity_cause(record: ArxivMetadata, query: str) -> Optional[str]:
     if revision is None:
         return f"arXiv's entry id names no revision: {version}"
     bare_entry = version[: revision.start()]
-    bare_query, requested = _split_version(query)
+    bare_query, requested = split_version(query)
     if bare_entry != bare_query:
         return f"arXiv answered with a record for {bare_entry}, not {bare_query}"
     if requested is not None and int(revision.group(1)) != requested:
@@ -537,11 +531,12 @@ def _identity_cause(record: ArxivMetadata, query: str) -> Optional[str]:
     return None
 
 
-def _arxiv_http_cause(code: int) -> str:
+def _http_cause(source: str, code: int) -> str:
+    """What an HTTP failure from ``source`` says, worded alike for both sources."""
     if code == 429:
-        return "arXiv rate-limited the request (HTTP 429)"
+        return f"{source} rate-limited the request (HTTP 429)"
     if 500 <= code <= 599:
-        return f"arXiv server error (HTTP {code})"
+        return f"{source} server error (HTTP {code})"
     return f"HTTP {code}"
 
 
@@ -564,7 +559,7 @@ def _arxiv_error_cause(exc: urllib.error.HTTPError) -> str:
         summary = _normalize(_atom_text(entry, "atom:summary"))
         if summary:
             return f"arXiv rejected the id: {summary}"
-    return _arxiv_http_cause(exc.code)
+    return _http_cause("arXiv", exc.code)
 
 
 def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
@@ -604,19 +599,6 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
     return MetadataFetch(METADATA_OK, metadata=record)
 
 
-def _datacite_http_cause(code: int, doi_id: str) -> str:
-    # ``doi_id`` is the id as the DOI spells it. For a legacy id naming a
-    # subject class that is the archive alone, and so not the caller's
-    # ``bare_id``; for every other id the two coincide.
-    if code == 404:
-        return f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
-    if code == 429:
-        return "DataCite rate-limited the request (HTTP 429)"
-    if 500 <= code <= 599:
-        return f"DataCite server error (HTTP {code})"
-    return f"HTTP {code}"
-
-
 def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     """One request to DataCite and the classification of its outcome.
 
@@ -624,7 +606,7 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     unanticipated exception still propagates, and ``fetch_metadata`` turns it
     into ``unavailable`` too.
     """
-    bare_id, requested = _split_version(arxiv_id)
+    bare_id, requested = split_version(arxiv_id)
     doi_id = _SUBJECT_CLASS.sub(r"\1/", bare_id)
     url = _DATACITE_URL + urllib.parse.quote(doi_id, safe="/")
     try:
@@ -634,7 +616,14 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
         # HTTPError subclasses URLError, so it must be caught first. It is also
         # an open response, which urlopen raised before any ``with`` bound it.
         exc.close()
-        return _unavailable(_datacite_http_cause(exc.code, doi_id))
+        if exc.code == 404:
+            # ``doi_id`` is the id as the DOI spells it. For a legacy id naming
+            # a subject class that is the archive alone, and so not
+            # ``bare_id``; for every other id the two coincide.
+            return _unavailable(
+                f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
+            )
+        return _unavailable(_http_cause("DataCite", exc.code))
     except urllib.error.URLError as exc:
         return _unavailable(f"URLError: {exc.reason}")
     except OSError as exc:
@@ -720,16 +709,13 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     an outage, a malformed feed — which is what keeps a run that would
     otherwise record nothing supplied with a record.
 
-    The two attempts draw on ``_CHAIN_DEADLINE_SHARE`` of ``deadline`` and no
-    more, and the arXiv attempt may spend only ``_ARXIV_DEADLINE_SHARE`` of
-    that pool. The first share leaves the fallback time to answer; the second
-    leaves this function time to compose its answer before the caller's own
-    bound fires, which is what keeps the cause below from being replaced by a
-    bare timeout. When both fail, that cause names what each of them said.
+    Each attempt is bounded in wall time, and the two together spend no more
+    than ``deadline``: the arXiv attempt may take ``_ARXIV_DEADLINE_SHARE`` of
+    it, which leaves the fallback time to answer, and the DataCite attempt what
+    is left. When both fail, the cause names what each of them said.
     """
     started = time.monotonic()
-    pool = deadline * _CHAIN_DEADLINE_SHARE
-    share = pool * _ARXIV_DEADLINE_SHARE
+    share = deadline * _ARXIV_DEADLINE_SHARE
     # Bounded in wall time, not just per socket operation: an arXiv that
     # trickles its response — the shape a rate-limited service often takes —
     # would otherwise spend the whole deadline and leave the fallback, which
@@ -742,7 +728,7 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     if primary.status == METADATA_OK:
         return primary
 
-    remaining = pool - (time.monotonic() - started)
+    remaining = deadline - (time.monotonic() - started)
     if remaining <= 0:
         return _unavailable(
             f"arXiv: {primary.failure_cause}; no time left to ask DataCite"
@@ -766,7 +752,7 @@ def fetch_metadata(
     """Look up the metadata record for ``arxiv_id``, giving up after ``deadline``.
 
     Every failure of the lookup lands in the returned ``MetadataFetch.error``
-    instead of propagating — an unanticipated ``Exception`` in the request, a
+    instead of propagating — an unanticipated ``Exception`` in a request, a
     worker thread that cannot start, and one that ends without a result
     included — letting callers fall back to a local title source (LaTeX
     ``\\title``, PDF embedded metadata) and still report the cause. A
@@ -778,11 +764,11 @@ def fetch_metadata(
     ``deadline`` bounds how long this call waits for the lookup. ``urlopen``'s own
     ``timeout`` bounds each socket operation rather than the request, a response
     that trickles in can outlast it many times over, and host resolution runs
-    outside it, so the request runs in a daemon thread that this call stops
-    waiting for. Each leg passes its own share of ``deadline`` as that socket
-    timeout, so a request that stalls outright still ends on its own; one that
-    keeps trickling can outlive the call, and being a daemon keeps it from
-    holding the process open.
+    outside it, so each request runs in a daemon thread that this call stops
+    waiting for once that request's share of ``deadline`` is spent. Each leg
+    passes its share as that socket timeout too, so a request that stalls
+    outright still ends on its own; one that keeps trickling can outlive the
+    call, and being a daemon keeps it from holding the process open.
 
     The record comes from arXiv's own API, or from DataCite when arXiv does not
     answer with one; ``ArxivMetadata.source`` says which, and ``_lookup``
@@ -809,7 +795,12 @@ def fetch_metadata(
             f"threading.TIMEOUT_MAX ({threading.TIMEOUT_MAX:g}), got {deadline!r}"
         )
 
-    return _bounded(lambda: _lookup(arxiv_id, deadline), deadline, "metadata lookup")
+    # Each leg already runs bounded and turns its own failures into
+    # ``unavailable``; this catches what the chain's own code might raise.
+    try:
+        return _lookup(arxiv_id, deadline)
+    except Exception as exc:
+        return _unavailable(_cause(exc))
 
 
 _HANDOFF_SCALARS = (

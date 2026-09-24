@@ -27,32 +27,29 @@ from arxiv_doc_builder.fetch_paper import (
 )
 
 
-def test_needs_refresh_no_cache_with_latest(tmp_path):
-    """No metadata file → re-fetch to establish version record."""
-    assert _needs_refresh(tmp_path, "2409.03108v2") is True
+def test_needs_refresh_no_cache_with_latest():
+    """No recorded version → re-fetch to establish version record."""
+    assert _needs_refresh(None, "2409.03108v2") is True
 
 
-def test_needs_refresh_no_cache_lookup_failed(tmp_path):
-    """No metadata and no version from the lookup → trust cache (no re-fetch)."""
-    assert _needs_refresh(tmp_path, None) is False
+def test_needs_refresh_no_cache_lookup_failed():
+    """No record and no version from the lookup → trust cache (no re-fetch)."""
+    assert _needs_refresh(None, None) is False
 
 
-def test_needs_refresh_version_matches(tmp_path):
+def test_needs_refresh_version_matches():
     """Cached version matches latest → skip."""
-    _write_cached_version(tmp_path, "2409.03108v2")
-    assert _needs_refresh(tmp_path, "2409.03108v2") is False
+    assert _needs_refresh("2409.03108v2", "2409.03108v2") is False
 
 
-def test_needs_refresh_version_differs(tmp_path):
+def test_needs_refresh_version_differs():
     """Cached v1, latest v2 → re-fetch."""
-    _write_cached_version(tmp_path, "2409.03108v1")
-    assert _needs_refresh(tmp_path, "2409.03108v2") is True
+    assert _needs_refresh("2409.03108v1", "2409.03108v2") is True
 
 
-def test_needs_refresh_lookup_failed_with_cache(tmp_path):
+def test_needs_refresh_lookup_failed_with_cache():
     """Lookup reports no version but cache exists → trust cache."""
-    _write_cached_version(tmp_path, "2409.03108v1")
-    assert _needs_refresh(tmp_path, None) is False
+    assert _needs_refresh("2409.03108v1", None) is False
 
 
 def test_write_then_read_roundtrip(tmp_path):
@@ -78,14 +75,19 @@ def test_read_corrupt_file(tmp_path):
     ids=["number", "null", "not-an-object"],
 )
 def test_a_version_that_is_not_text_reads_as_absent(tmp_path, content):
-    # The readers downstream match this value against a pattern, which raises
-    # on a non-string. A hand-edited sidecar must not end the run.
+    # The readers downstream treat this value as text, which raises or
+    # misfires on anything else. A hand-edited sidecar must not end the run.
     (tmp_path / _METADATA_FILE).write_text(content, encoding="utf-8")
-    assert _read_cached_version(tmp_path) is None
-    assert _needs_refresh(tmp_path, "2409.03108v2") is True
+    cached = _read_cached_version(tmp_path)
+    assert cached is None
+    assert _needs_refresh(cached, "2409.03108v2") is True
     assert (
         _target_version(
-            tmp_path, "2409.03108v2", pinned=False, source=METADATA_SOURCE_DATACITE
+            tmp_path,
+            "2409.03108v2",
+            cached,
+            pinned=False,
+            source=METADATA_SOURCE_DATACITE,
         )
         == "2409.03108v2"
     )
@@ -102,9 +104,9 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
     """A pinned id reports its own revision; a sidecar naming another one re-fetches
     once, which downloads the same pinned revision, and is stable afterwards."""
     _write_cached_version(tmp_path, "2409.03108v2")
-    assert _needs_refresh(tmp_path, "2409.03108v1") is True
+    assert _needs_refresh(_read_cached_version(tmp_path), "2409.03108v1") is True
     assert _record_version(tmp_path, "2409.03108v1", fetched=True) is True
-    assert _needs_refresh(tmp_path, "2409.03108v1") is False
+    assert _needs_refresh(_read_cached_version(tmp_path), "2409.03108v1") is False
 
 
 # --- which revision the run should hold -------------------------------------
@@ -123,9 +125,11 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
         ("2409.03108v10", "2409.03108v9", False, "2409.03108v10"),
         # A requested revision is what the user asked for, whatever is cached.
         ("2409.03108v3", "2409.03108v2", True, "2409.03108v2"),
-        # A record of another paper, or of a different spelling of the id, says
-        # nothing about this lookup's revision.
+        # A record of another paper says nothing about this lookup's revision.
         ("2409.03109v3", "2409.03108v2", False, "2409.03108v2"),
+        # A hand edit can leave a trailing newline, and that value would go
+        # into the download URL if it won.
+        ("2409.03108v3\n", "2409.03108v2", False, "2409.03108v2"),
         ("math/0309136v3", "math/0309136v2", False, "math/0309136v3"),
         ("2409.03108v3", None, False, None),
     ],
@@ -137,6 +141,7 @@ def test_a_pinned_id_after_a_record_of_another_revision_refreshes_once(tmp_path)
         "record-newer-numerically",
         "pinned-overrides-newer-record",
         "record-of-another-paper",
+        "record-with-a-trailing-newline",
         "legacy-record-newer",
         "no-version-from-lookup",
     ],
@@ -148,10 +153,8 @@ def test_target_version_keeps_a_later_recorded_revision_of_an_unpinned_id(
     # some; the case without it is its own test below. They read as the
     # fallback answering, the only source whose record can trail arXiv.
     seed_cached_source(tmp_path)
-    if cached is not None:
-        _write_cached_version(tmp_path, cached)
     target_version = _target_version(
-        tmp_path, latest, pinned=pinned, source=METADATA_SOURCE_DATACITE
+        tmp_path, latest, cached, pinned=pinned, source=METADATA_SOURCE_DATACITE
     )
     assert target_version == target
 
@@ -162,15 +165,19 @@ def test_a_record_ahead_of_arxivs_own_answer_does_not_win(tmp_path):
     # at that revision for as long as the file stayed — no lookup could move
     # it, since the comparison would keep going the same way.
     seed_cached_source(tmp_path)
-    _write_cached_version(tmp_path, "2409.03108v99")
+    cached = "2409.03108v99"
 
     from_arxiv = _target_version(
-        tmp_path, "2409.03108v2", pinned=False, source=METADATA_SOURCE_ARXIV
+        tmp_path, "2409.03108v2", cached, pinned=False, source=METADATA_SOURCE_ARXIV
     )
     assert from_arxiv == "2409.03108v2"
 
     from_datacite = _target_version(
-        tmp_path, "2409.03108v2", pinned=False, source=METADATA_SOURCE_DATACITE
+        tmp_path,
+        "2409.03108v2",
+        cached,
+        pinned=False,
+        source=METADATA_SOURCE_DATACITE,
     )
     assert from_datacite == "2409.03108v99"
 
@@ -179,8 +186,11 @@ def test_a_record_without_a_cached_source_cannot_outvote_the_lookup(tmp_path):
     # A sidecar naming a revision that no longer exists would otherwise be
     # re-confirmed on every run, while the source download for that revision
     # failed on every run and the LaTeX path never came back.
-    _write_cached_version(tmp_path, "2409.03108v99")
-    lagging = {"pinned": False, "source": METADATA_SOURCE_DATACITE}
+    lagging = {
+        "cached": "2409.03108v99",
+        "pinned": False,
+        "source": METADATA_SOURCE_DATACITE,
+    }
     assert _target_version(tmp_path, "2409.03108v2", **lagging) == "2409.03108v2"
 
     # A cached PDF does not change that: the source would still be fetched at
