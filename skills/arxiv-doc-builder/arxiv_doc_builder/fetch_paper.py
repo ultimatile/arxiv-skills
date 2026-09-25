@@ -278,9 +278,10 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
 def _needs_refresh(cached: Optional[str], latest: Optional[str]) -> bool:
     """Decide whether cached artifacts should be re-fetched.
 
-    Returns True when the metadata record reports a different version
-    than ``cached``, the one recorded locally. Returns False (trust cache)
-    when the lookup reports no version or the versions match.
+    Returns True when ``latest``, the revision this run targets (see
+    ``_target_version``), differs from ``cached``, the one recorded locally.
+    Returns False (trust cache) when there is no target revision or the two
+    match.
     """
     if latest is None:
         return False

@@ -287,10 +287,12 @@ def _prose(text: Optional[str]) -> Optional[str]:
     ``&gt;`` left encoded. The Atom leg uses ``_normalize`` instead, since an
     XML parser has already decoded them.
 
-    Only a complete reference, terminated by ``;`` and naming a known entity,
-    is decoded. ``html.unescape`` alone also decodes HTML's legacy forms
-    without the semicolon, turning literal text such as ``&notation`` into
-    ``¬ation``.
+    Only a complete reference, terminated by ``;``, is decoded: a numeric one
+    always, as HTML decodes it, which replaces, remaps or drops some code
+    points (``&#128;`` reads as ``€``), and a named one when it names a known
+    entity.
+    ``html.unescape`` alone also decodes HTML's legacy forms without the
+    semicolon, turning literal text such as ``&notation`` into ``¬ation``.
     """
     if text is None:
         return None
@@ -533,8 +535,11 @@ def _parse_entry(entry: ET.Element) -> ArxivMetadata:
     )
 
 
-def _identity_cause(record: ArxivMetadata, query: str) -> Optional[str]:
-    """Why ``record`` does not describe ``query``, or ``None`` when it does.
+def _identity_cause(version: Optional[str], query: str) -> Optional[str]:
+    """Why an entry whose id reads ``version`` does not describe ``query``.
+
+    ``None`` when it does. ``version`` is what ``parse_version_from_id`` reads
+    off the entry's ``<id>``, and nothing else of the entry is consulted.
 
     A feed naming another paper parses exactly like one naming this paper, so
     the entry has to identify itself before its fields are read. Four things
@@ -550,7 +555,6 @@ def _identity_cause(record: ArxivMetadata, query: str) -> Optional[str]:
     ``query`` is the id as requested, already stripped of any subject class,
     which is the form arXiv spells an entry id in.
     """
-    version = record.version
     if version is None:
         return "arXiv's entry carries no id to identify the paper by"
     bare_entry, revision = split_version(version)
@@ -644,11 +648,12 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
             _normalize(_atom_text(entry, "atom:summary"))
             or "arXiv reported an error for this id"
         )
-    record = _parse_entry(entry)
-    mismatch = _identity_cause(record, query)
+    mismatch = _identity_cause(
+        parse_version_from_id(_atom_text(entry, "atom:id")), query
+    )
     if mismatch is not None:
         return _unavailable(mismatch)
-    return MetadataFetch(METADATA_OK, metadata=record)
+    return MetadataFetch(METADATA_OK, metadata=_parse_entry(entry))
 
 
 def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
@@ -770,9 +775,10 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     otherwise record nothing supplied with a record.
 
     Each attempt is bounded in wall time, and the two together spend about
-    ``deadline`` at most, the time to start and join each thread aside: the arXiv attempt may take ``_ARXIV_DEADLINE_SHARE`` of
-    it, which leaves the fallback time to answer, and the DataCite attempt what
-    is left. When both fail, the cause names what each of them said.
+    ``deadline`` at most, the time to start and join each thread aside. The
+    arXiv attempt may take ``_ARXIV_DEADLINE_SHARE`` of it, which leaves the
+    fallback time to answer, and the DataCite attempt what is left. When both
+    fail, the cause names what each of them said.
     """
     started = time.monotonic()
     share = deadline * _ARXIV_DEADLINE_SHARE

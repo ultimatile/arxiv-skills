@@ -495,19 +495,23 @@ _ATOM_WITHOUT_AN_ID = _ATOM_ENTRY.replace(
     ids=["another-paper", "another-revision", "no-revision", "no-id"],
 )
 def test_a_feed_that_does_not_identify_the_paper_is_not_read_as_its_record(
-    transport, feed, arxiv_id, cause
+    transport, monkeypatch, feed, arxiv_id, cause
 ):
     # Such a feed parses exactly like one that does. Read at face value it puts
     # another paper's title, authors and DOI into the document, and — because
     # the chain branches on the status alone — an `ok` there would also keep
     # the fallback from being asked. Discarding only `version` would leave both
-    # of those intact, so the whole record is refused with a cause.
+    # of those intact, so the whole record is refused with a cause, and the
+    # entry's other fields are never read.
+    parsed: list[object] = []
+    monkeypatch.setattr(arxiv_metadata, "_parse_entry", parsed.append)
     transport(_http_error(404), arxiv=feed)
     result = fetch_metadata(arxiv_id)
 
     assert result.status == METADATA_UNAVAILABLE
     assert result.metadata is None
     assert result.failure_cause.startswith(f"arXiv: {cause}")
+    assert parsed == []
 
 
 def test_a_feed_naming_another_paper_leaves_the_fallback_to_answer(transport):
