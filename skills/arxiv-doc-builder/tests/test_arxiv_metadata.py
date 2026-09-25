@@ -19,6 +19,7 @@ type and version count, so nothing here reaches the network.
 """
 
 import io
+import json
 import math
 import subprocess
 import sys
@@ -341,11 +342,14 @@ def _datacite_requests(requested: list[str]) -> list[str]:
     return [url for url in requested if url.startswith(arxiv_metadata._DATACITE_URL)]
 
 
-def _http_error(code: int) -> urllib.error.HTTPError:
+def _http_error(
+    code: int, *, url: str = "https://api.datacite.org", fp: Optional[io.BytesIO] = None
+) -> urllib.error.HTTPError:
+    """An HTTP failure as urlopen raises it, its body read from ``fp``."""
     from email.message import Message
 
     return urllib.error.HTTPError(
-        "https://api.datacite.org", code, "msg", Message(), io.BytesIO()
+        url, code, "msg", Message(), fp if fp is not None else io.BytesIO()
     )
 
 
@@ -373,7 +377,8 @@ def test_the_arxiv_record_maps_onto_the_frontmatter_fields(transport):
     assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_ARXIV
 
 
-@pytest.mark.parametrize(
+# What arXiv can do instead of answering, and the cause its leg reports.
+_ARXIV_FAILURES = pytest.mark.parametrize(
     ("arxiv_outcome", "cause"),
     [
         (_http_error(429), "arXiv rate-limited the request (HTTP 429)"),
@@ -386,6 +391,9 @@ def test_the_arxiv_record_maps_onto_the_frontmatter_fields(transport):
     ],
     ids=["429", "5xx", "other-http", "os-error", "malformed-xml", "no-entry", "error"],
 )
+
+
+@_ARXIV_FAILURES
 def test_datacite_answers_when_arxiv_does_not(transport, arxiv_outcome, cause):
     requested = transport(_record("2409.03108"), arxiv=arxiv_outcome)
     result = fetch_metadata("2409.03108")
@@ -396,7 +404,16 @@ def test_datacite_answers_when_arxiv_does_not(transport, arxiv_outcome, cause):
     assert result.status == METADATA_OK
     assert result.metadata is not None
     assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
-    assert cause  # the arXiv leg's cause, kept for the both-failed message
+
+
+@_ARXIV_FAILURES
+def test_each_arxiv_failure_is_named_when_datacite_fails_too(
+    transport, arxiv_outcome, cause
+):
+    transport(_http_error(404), arxiv=arxiv_outcome)
+    result = fetch_metadata("2409.03108")
+    assert result.status == METADATA_UNAVAILABLE
+    assert result.failure_cause.startswith(f"arXiv: {cause}")
 
 
 def test_a_failure_on_both_sources_names_what_each_one_said(transport):
@@ -732,8 +749,12 @@ def test_both_sources_spell_a_legacy_version_the_way_arxiv_does(
 ):
     # The version-drift check compares this string with the sidecar's. A
     # DataCite answer spelling it with the subject class would read as another
-    # paper, and the fetch step would delete the cached source over it.
-    transport(_record("2409.03108"))
+    # paper, and the fetch step would delete the cached source over it. The
+    # stored record lists v1 and v2; it is relabelled as this paper's, since
+    # DataCite names the DOI it answers for and the lookup checks it.
+    document = json.loads(_record("2409.03108"))
+    document["data"]["id"] = "10.48550/arxiv.math/0309136"
+    transport(json.dumps(document).encode())
     result = fetch_metadata(arxiv_id)
     assert result.metadata is not None
     assert result.metadata.version == version
@@ -758,14 +779,8 @@ def test_the_arxiv_request_drops_a_legacy_subject_class(transport):
 def test_a_rejected_id_is_reported_by_what_arxiv_said(transport):
     # arXiv answers a malformed id with HTTP 400 whose body holds an error
     # entry. The entry says what was wrong with the id; the status does not.
-    from email.message import Message
-
-    rejected = urllib.error.HTTPError(
-        arxiv_metadata._ARXIV_API_URL,
-        400,
-        "Bad Request",
-        Message(),
-        io.BytesIO(_ATOM_ERROR_ENTRY),
+    rejected = _http_error(
+        400, url=arxiv_metadata._ARXIV_API_URL, fp=io.BytesIO(_ATOM_ERROR_ENTRY)
     )
     transport(_http_error(404), arxiv=rejected)
     result = fetch_metadata("2606.09995")
@@ -842,17 +857,11 @@ def test_a_trickling_arxiv_leg_leaves_the_fallback_its_time(transport):
 def test_an_error_response_is_closed_on_each_leg(transport):
     # An HTTPError is an open response holding a socket, and urlopen raises it
     # before any `with` can bind it, so each leg closes it by hand.
-    from email.message import Message
-
     arxiv_body = io.BytesIO(_ATOM_ERROR_ENTRY)
     datacite_body = io.BytesIO(b"{}")
     transport(
-        urllib.error.HTTPError(
-            arxiv_metadata._DATACITE_URL, 404, "Not Found", Message(), datacite_body
-        ),
-        arxiv=urllib.error.HTTPError(
-            arxiv_metadata._ARXIV_API_URL, 400, "Bad Request", Message(), arxiv_body
-        ),
+        _http_error(404, url=arxiv_metadata._DATACITE_URL, fp=datacite_body),
+        arxiv=_http_error(400, url=arxiv_metadata._ARXIV_API_URL, fp=arxiv_body),
     )
     fetch_metadata("2606.09995")
 
@@ -893,7 +902,10 @@ def test_an_unclassified_arxiv_failure_still_reaches_the_fallback(transport):
 def test_a_requested_revision_with_no_listed_revisions_is_ok(transport):
     # With no Submitted dates there is no latest revision to compare against, so
     # the requested one is not rejected.
-    transport(b'{"data": {"attributes": {"titles": [{"title": "T"}]}}}')
+    transport(
+        b'{"data": {"id": "10.48550/arxiv.2001.00001",'
+        b' "attributes": {"titles": [{"title": "T"}]}}}'
+    )
     result = fetch_metadata("2001.00001v3")
     assert result.status == METADATA_OK
     assert result.metadata is not None
@@ -922,6 +934,34 @@ def _submitted(*labels: str) -> list[dict]:
         }
         for i, label in enumerate(labels)
     ]
+
+
+def test_a_record_naming_another_paper_is_unavailable(transport):
+    # The fields of another paper's record would otherwise reach the document
+    # as this paper's, under metadata_status: ok.
+    transport(_record("2409.03108"))
+    result = fetch_metadata("2001.00001")
+    assert result.status == METADATA_UNAVAILABLE
+    assert "DataCite answered with a record for '10.48550/arxiv.2409.03108'" in (
+        result.failure_cause
+    )
+
+
+def test_a_record_that_names_no_doi_is_unavailable(transport):
+    transport(b'{"data": {"attributes": {"titles": [{"title": "T"}]}}}')
+    result = fetch_metadata("2001.00001")
+    assert result.status == METADATA_UNAVAILABLE
+    assert "DataCite answered with a record for None" in result.failure_cause
+
+
+def test_a_listed_revision_without_a_usable_date_still_counts_as_latest():
+    attributes = {
+        "dates": _submitted("v1")
+        + [{"dateType": "Submitted", "dateInformation": "v2", "date": None}]
+    }
+    meta = arxiv_metadata._parse_record("2001.00001", attributes)
+    assert meta.version == "2001.00001v2"
+    assert meta.published == "2020-01-01"
 
 
 def test_the_latest_revision_compares_numerically():
@@ -1452,8 +1492,6 @@ def test_an_untrustworthy_handoff_is_unavailable_with_a_cause(tmp_path, content)
     # revision over the record's only when the fallback answered, so a handoff
     # whose source is missing or outside the vocabulary would decide that rule
     # by a value no lookup produces.
-    import json
-
     path = tmp_path / "handoff.json"
     path.write_text(
         content if isinstance(content, str) else json.dumps(content), encoding="utf-8"

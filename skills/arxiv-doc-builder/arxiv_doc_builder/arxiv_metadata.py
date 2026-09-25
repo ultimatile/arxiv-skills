@@ -344,24 +344,26 @@ def _text(entry: dict[str, Any], key: str) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
-def _revision_dates(
+def _revisions(
     attributes: dict[str, Any], *, date_types: tuple[str, ...]
-) -> dict[int, str]:
-    """The revisions DataCite lists under ``date_types``, mapped to their dates.
+) -> list[tuple[int, Optional[str]]]:
+    """The revisions DataCite lists under ``date_types``, each with its date.
 
     DataCite labels a revision ``v<N>``, sometimes with a note after it
     (``"v2; None"`` on a withdrawal), so the number is read off the front of
-    the label rather than matched against the whole of it.
+    the label rather than matched against the whole of it. A listed revision
+    counts whether or not its entry carries a date: the date is the entry's
+    text as given, which the caller still has to parse, or ``None`` when the
+    entry has no text there.
     """
-    versions: dict[int, str] = {}
+    revisions: list[tuple[int, Optional[str]]] = []
     for entry in _dicts(attributes.get("dates")):
         if entry.get("dateType") not in date_types:
             continue
         match = _REVISION_LABEL.match(_text(entry, "dateInformation") or "")
-        date = _text(entry, "date")
-        if match and date:
-            versions[int(match.group(1))] = date
-    return versions
+        if match:
+            revisions.append((int(match.group(1)), _text(entry, "date")))
+    return revisions
 
 
 def _parse_record(bare_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
@@ -398,9 +400,12 @@ def _parse_record(bare_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
             authors.append(normalized)
 
     latest = max(
-        _revision_dates(attributes, date_types=_REVISION_DATE_TYPES), default=None
+        (n for n, _ in _revisions(attributes, date_types=_REVISION_DATE_TYPES)),
+        default=None,
     )
-    submitted = _revision_dates(attributes, date_types=("Submitted",))
+    submitted = {
+        n: date for n, date in _revisions(attributes, date_types=("Submitted",)) if date
+    }
     version = f"{bare_id}v{latest}" if latest is not None else None
 
     first_date = _CALENDAR_DATE.match(submitted.get(1) or "")
@@ -573,8 +578,11 @@ def _get(
 ) -> Union[bytes, MetadataFetch]:
     """The body ``url`` answers with, or ``unavailable`` saying why there is none.
 
-    ``http_cause`` words an HTTP failure for its source, and may read the error
-    response's body to do so.
+    Classifies the failures urlopen and the read are documented to raise: an
+    HTTP status, a URLError and an OSError. ``http_cause`` words an HTTP
+    failure for its source, and may read the error response's body to do so.
+    Anything else, such as ``http.client.IncompleteRead`` from a body cut
+    short, propagates to ``_bounded``, which reports it as ``unavailable``.
     """
     try:
         with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
@@ -676,6 +684,15 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     attributes = data.get("attributes") if isinstance(data, dict) else None
     if not isinstance(attributes, dict):
         return _unavailable("DataCite response has no data.attributes")
+    # A record for another paper parses exactly like one for this paper, so it
+    # has to name the DOI asked for before its fields are read, as an Atom
+    # entry has to on the arXiv leg. DataCite spells the DOI in lower case.
+    expected = f"10.48550/arxiv.{doi_id}".lower()
+    named = data.get("id") if isinstance(data, dict) else None
+    if not isinstance(named, str) or named.lower() != expected:
+        return _unavailable(
+            f"DataCite answered with a record for {named!r}, not {expected}"
+        )
 
     # Parsed under the id arXiv itself uses — the archive alone, without the
     # subject class — so both sources spell ``version`` the same way. Two
@@ -707,9 +724,11 @@ def _bounded(
     while the request itself runs on. Nothing can cancel it: with the
     connection closed from another thread, a blocked read was measured
     returning 59 s later, on its own socket timeout. The thread is a daemon, so
-    an abandoned request cannot hold the process open, and every failure — one
-    that cannot start, one that ends without a result — comes back as
-    ``unavailable`` rather than propagating.
+    an abandoned request cannot hold the process open, and every failure of
+    ``call`` or its thread — an exception it raises, a thread that cannot
+    start, one that ends without a result — comes back as ``unavailable``
+    rather than propagating. An interrupt of the caller itself, such as a
+    KeyboardInterrupt while it waits, still propagates.
     """
     outcome: list[MetadataFetch] = []
 
