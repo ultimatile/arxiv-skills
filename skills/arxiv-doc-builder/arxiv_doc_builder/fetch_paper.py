@@ -20,42 +20,90 @@ from typing import Optional
 # fallback — only a genuinely absent top-level package falls through.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_doc_builder.arxiv_metadata import MetadataFetch, fetch_metadata
+    from arxiv_doc_builder.arxiv_metadata import (
+        METADATA_SOURCE_DATACITE,
+        MetadataFetch,
+        add_metadata_handoff_option,
+        fetch_metadata,
+        resolve_metadata,
+        split_version,
+    )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     # Script invocation: script dir is on sys.path[0], so arxiv_id.py is
     # importable as a top-level module.
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
-    from arxiv_metadata import MetadataFetch, fetch_metadata
+    from arxiv_metadata import (
+        METADATA_SOURCE_DATACITE,
+        MetadataFetch,
+        add_metadata_handoff_option,
+        fetch_metadata,
+        resolve_metadata,
+        split_version,
+    )
 
 
 _METADATA_FILE = ".arxiv-fetch.json"
 
 
 def _probe_metadata(arxiv_id: str) -> MetadataFetch:
-    """Query the arXiv API for the record the drift check reads.
+    """The lookup the drift check reads, when no handoff supplies one.
 
-    Returns the whole outcome, not just a version string. An unreachable API
-    and a record without a version tail both leave the sidecar unwritten, and
-    only the outcome tells them apart.
-
-    Delegates to ``fetch_metadata`` for the Atom request. ``_latest_version``
-    reads the version out. A short timeout keeps the pre-fetch probe light.
-
-    Assumes ``arxiv_id`` has already been validated to canonical form by
-    ``validate_arxiv_id``. No zero-padding happens here.
+    The whole outcome, since only it tells a failed lookup from a record
+    without a version. ``arxiv_id`` must already be validated.
     """
-    return fetch_metadata(arxiv_id, timeout=5)
+    return fetch_metadata(arxiv_id)
 
 
 def _latest_version(probe: MetadataFetch) -> Optional[str]:
-    """The version string the probe reports, or ``None`` when it reports none.
-
-    The rest of this module reads ``None`` as "no usable answer from the API",
-    whether the request failed or the record carried no version tail.
-    """
+    """The version the probe reports, or ``None`` (failed or versionless)."""
     return probe.metadata.version if probe.metadata else None
+
+
+def _has_cached_source(paper_dir: Path) -> bool:
+    """Whether a cached source tree is on disk, which ``fetch_source`` reuses.
+
+    A cached PDF does not count: with only a PDF, the source is requested on
+    every run, and a bogus recorded revision kept there would fail every time.
+    """
+    source = paper_dir / "source"
+    return source.is_dir() and any(source.rglob("*.tex"))
+
+
+def _target_version(
+    paper_dir: Path,
+    latest: Optional[str],
+    cached: Optional[str],
+    *,
+    pinned: bool,
+    source: Optional[str],
+) -> Optional[str]:
+    """The revision this run should have on disk and record.
+
+    Normally ``latest``. ``cached`` wins instead when all of these hold: the id
+    named no revision, DataCite answered (only it can trail arXiv), a source
+    tree is cached, and ``cached`` is a later revision of the same paper.
+    """
+    if pinned or latest is None:
+        return latest
+    if source != METADATA_SOURCE_DATACITE:
+        # arXiv is authoritative about its own revisions.
+        return latest
+    if not _has_cached_source(paper_dir):
+        return latest
+    if cached is None:
+        return latest
+    cached_bare, cached_revision = split_version(cached)
+    looked_up_bare, looked_up_revision = split_version(latest)
+    if (
+        cached_revision is not None
+        and looked_up_revision is not None
+        and cached_bare == looked_up_bare
+        and cached_revision > looked_up_revision
+    ):
+        return cached
+    return latest
 
 
 def _read_cached_version(paper_dir: Path) -> Optional[str]:
@@ -65,18 +113,15 @@ def _read_cached_version(paper_dir: Path) -> Optional[str]:
         return None
     try:
         data = json.loads(meta.read_text(encoding="utf-8"))
-        return data.get("version")
     except Exception:
         return None
+    version = data.get("version") if isinstance(data, dict) else None
+    # A hand edit can put anything here.
+    return version if isinstance(version, str) else None
 
 
 def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) -> bool:
-    """Persist the fetched version, reporting whether it was persisted.
-
-    Writes only with a version *and* material. Recording a version for an empty
-    paper directory would misrepresent it. Returns ``False`` having written
-    nothing otherwise.
-    """
+    """Record ``latest`` if there is one and material was fetched; say whether."""
     if latest is None or not fetched:
         return False
     _write_cached_version(paper_dir, latest)
@@ -86,12 +131,7 @@ def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) ->
 def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
     """The warning for a run that fetched material but recorded no version.
 
-    Composed here, not through the conversion paths' shared warning. This step
-    writes no frontmatter and has no null fields to explain, and it fires on a
-    probe that may have succeeded.
-
-    Call only when ``_record_version`` returned ``False`` for a run that did
-    obtain material.
+    Call only when ``_record_version`` returned ``False`` after a fetch.
     """
     if _latest_version(probe) is not None:
         raise ValueError(
@@ -99,9 +139,9 @@ def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
             "the reason this warning states"
         )
     if probe.error is not None:
-        situation = f"could not read the arXiv record for {arxiv_id}: {probe.error}"
+        situation = f"no usable metadata record for {arxiv_id}: {probe.error}"
     else:
-        situation = f"the arXiv record for {arxiv_id} carried no version"
+        situation = f"the metadata record for {arxiv_id} carried no version"
     return (
         f"WARNING: {situation}\n"
         f"  Version drift was not checked, and {_METADATA_FILE} was not updated."
@@ -191,16 +231,16 @@ def _extract_gzip_single(downloaded: Path, source_dir: Path) -> bool:
     return True
 
 
-def _needs_refresh(paper_dir: Path, latest: Optional[str]) -> bool:
+def _needs_refresh(cached: Optional[str], latest: Optional[str]) -> bool:
     """Decide whether cached artifacts should be re-fetched.
 
-    Returns True when the arXiv API reports a newer version than what
-    is recorded locally. Returns False (trust cache) when the API is
-    unreachable or the versions match.
+    Returns True when ``latest``, the revision this run targets (see
+    ``_target_version``), differs from ``cached``, the one recorded locally.
+    Returns False (trust cache) when there is no target revision or the two
+    match.
     """
     if latest is None:
         return False
-    cached = _read_cached_version(paper_dir)
     if cached is None:
         # No metadata — either a pre-metadata cache or first run.
         # Re-fetch to establish a version record.
@@ -238,7 +278,7 @@ def fetch_source(
     downloaded = output_dir / f"{file_id}-src.tar.gz"
     source_dir = output_dir / "source"
 
-    if source_dir.exists() and any(source_dir.rglob("*.tex")) and not refresh:
+    if _has_cached_source(output_dir) and not refresh:
         print(f"✓ Source already present at {source_dir}, skipping fetch")
         return True
 
@@ -353,6 +393,7 @@ def main():
         default=Path("papers"),
         help="Output directory (default: ./papers)",
     )
+    add_metadata_handoff_option(parser)
     args = parser.parse_args()
 
     try:
@@ -376,11 +417,26 @@ def main():
     print()
 
     # Check for version drift before fetching
-    probe = _probe_metadata(args.arxiv_id)
-    latest = _latest_version(probe)
-    refresh = _needs_refresh(paper_dir, latest)
+    probe = resolve_metadata(args.arxiv_id, args.metadata_handoff, _probe_metadata)
+    cached = _read_cached_version(paper_dir)
+    looked_up = _latest_version(probe)
+    latest = _target_version(
+        paper_dir,
+        looked_up,
+        cached,
+        pinned=split_version(args.arxiv_id)[1] is not None,
+        source=probe.metadata.source if probe.metadata else None,
+    )
+    if looked_up is not None and latest != looked_up:
+        print(
+            f"Note: the metadata record names {looked_up}, but the cached {latest} "
+            "is kept, since DataCite's record can trail arXiv. A conversion that "
+            f"reads this lookup, as convert-paper's does, names {looked_up} in "
+            "its frontmatter.",
+            file=sys.stderr,
+        )
+    refresh = _needs_refresh(cached, latest)
     if refresh:
-        cached = _read_cached_version(paper_dir)
         if cached is None:
             print(
                 f"No version metadata found, re-fetching to establish record (latest={latest})"
@@ -389,14 +445,17 @@ def main():
             print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
+    # Download the revision this run records, so the sidecar matches the disk.
+    # With no version, the id is downloaded as given and nothing is recorded.
+    download_id = latest or args.arxiv_id
     has_source = fetch_source(
-        args.arxiv_id,
+        download_id,
         paper_dir,
         normalized_arxiv_id,
         refresh=refresh,
     )
     has_pdf = fetch_pdf(
-        args.arxiv_id,
+        download_id,
         paper_dir,
         normalized_arxiv_id,
         refresh=refresh,

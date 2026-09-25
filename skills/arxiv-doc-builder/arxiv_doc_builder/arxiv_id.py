@@ -91,7 +91,7 @@ def validate_arxiv_id(arxiv_id: str) -> str:
 
     Callers are expected to invoke this at argparse boundaries; internal
     code paths may then trust that IDs are in canonical form (no further
-    zero-padding required before hitting the arXiv API).
+    zero-padding required before building request URLs from them).
     """
     legacy_m = _LEGACY_RE.match(arxiv_id)
     if legacy_m:
