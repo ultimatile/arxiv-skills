@@ -316,8 +316,7 @@ def convert_pdf_to_markdown(
         # Unified YAML frontmatter (same schema as the LaTeX path). When an
         # arXiv id is available its record is authoritative; otherwise fall
         # back to the PDF's embedded title/author, leaving record-only fields
-        # null. The old bold "Source/Converted/Pages" header is intentionally
-        # dropped in favour of this single provenance surface.
+        # null.
         if arxiv_id:
             fetched = resolve_metadata(arxiv_id, metadata_handoff, fetch_metadata)
             metadata_status = fetched.status

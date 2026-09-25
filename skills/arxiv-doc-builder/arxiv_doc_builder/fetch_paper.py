@@ -48,44 +48,24 @@ _METADATA_FILE = ".arxiv-fetch.json"
 
 
 def _probe_metadata(arxiv_id: str) -> MetadataFetch:
-    """Look up the record the drift check reads.
+    """The lookup the drift check reads, when no handoff supplies one.
 
-    Returns the whole outcome, not just a version string. A failed lookup and a
-    record without a version both leave the sidecar unwritten, and only the
-    outcome tells them apart.
-
-    Delegates to ``fetch_metadata``, which bounds how long it waits for the
-    lookup. ``_latest_version`` reads the version out. A run started by
-    ``convert_paper`` is handed that script's lookup through
-    ``--metadata-handoff`` and does not call this.
-
-    Assumes ``arxiv_id`` has already been validated to canonical form by
-    ``validate_arxiv_id``. No zero-padding happens here.
+    The whole outcome, since only it tells a failed lookup from a record
+    without a version. ``arxiv_id`` must already be validated.
     """
     return fetch_metadata(arxiv_id)
 
 
 def _latest_version(probe: MetadataFetch) -> Optional[str]:
-    """The version string the probe reports, or ``None`` when it reports none.
-
-    The rest of this module reads ``None`` as "no usable answer from the
-    lookup", whether the lookup failed or the record carried no version.
-    """
+    """The version the probe reports, or ``None`` (failed or versionless)."""
     return probe.metadata.version if probe.metadata else None
 
 
 def _has_cached_source(paper_dir: Path) -> bool:
     """Whether a cached source tree is on disk, which ``fetch_source`` reuses.
 
-    The source is the artifact the recorded revision protects: the fetch step
-    deletes it, hand edits included, when the revision moves, and reuses it
-    without a download when it does not. A cached PDF answers nothing here.
-    With only a PDF cached, the source is still requested on every run, which
-    is how a paper whose source download once failed gets it back. If a
-    recorded revision arXiv does not serve (a hand edit, say) could win there,
-    that request would name it and fail on every run, and the LaTeX path would
-    never return. Nothing on disk tells that case from a paper arXiv serves as
-    a PDF alone, so neither keeps its recorded revision.
+    A cached PDF does not count: with only a PDF, the source is requested on
+    every run, and a bogus recorded revision kept there would fail every time.
     """
     source = paper_dir / "source"
     return source.is_dir() and any(source.rglob("*.tex"))
@@ -101,28 +81,16 @@ def _target_version(
 ) -> Optional[str]:
     """The revision this run should have on disk and record.
 
-    Normally ``latest``, the revision the lookup reported. One case overrides
-    it, and all four of its conditions hold together: the id named no revision
-    (``pinned`` false), the fallback source answered, a source tree is cached,
-    and ``cached``, the revision the sidecar records, is a later revision of
-    the same paper. The recorded one then wins.
-
-    Only the fallback's registrations can trail what arXiv serves, so only
-    there is a cached later revision a lag rather than a record left behind by
-    something else. Without a cached source the record protects nothing, and a
-    revision it names that no longer exists would be requested — and fail — on
-    every run. A requested revision always wins, and ``None`` stays ``None``.
+    Normally ``latest``. ``cached`` wins instead when all of these hold: the id
+    named no revision, DataCite answered (only it can trail arXiv), a source
+    tree is cached, and ``cached`` is a later revision of the same paper.
     """
     if pinned or latest is None:
         return latest
     if source != METADATA_SOURCE_DATACITE:
-        # arXiv's own record is authoritative about its revisions, so letting a
-        # cached revision ahead of it win would hold the paper there for as
-        # long as the file stayed: no lookup could move it, since the
-        # comparison would keep going the same way.
+        # arXiv is authoritative about its own revisions.
         return latest
     if not _has_cached_source(paper_dir):
-        # The lookup's version wins, and the run self-heals.
         return latest
     if cached is None:
         return latest
@@ -148,19 +116,12 @@ def _read_cached_version(paper_dir: Path) -> Optional[str]:
     except Exception:
         return None
     version = data.get("version") if isinstance(data, dict) else None
-    # An earlier run wrote this file, but a hand edit can put anything in it,
-    # and the readers below treat the value as text, parsing or comparing it,
-    # which raises or misfires on anything else.
+    # A hand edit can put anything here.
     return version if isinstance(version, str) else None
 
 
 def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) -> bool:
-    """Persist the fetched version, reporting whether it was persisted.
-
-    Writes only with a version *and* material. Recording a version for an empty
-    paper directory would misrepresent it. Returns ``False`` having written
-    nothing otherwise.
-    """
+    """Record ``latest`` if there is one and material was fetched; say whether."""
     if latest is None or not fetched:
         return False
     _write_cached_version(paper_dir, latest)
@@ -170,12 +131,7 @@ def _record_version(paper_dir: Path, latest: Optional[str], *, fetched: bool) ->
 def _format_sidecar_skip_warning(arxiv_id: str, probe: MetadataFetch) -> str:
     """The warning for a run that fetched material but recorded no version.
 
-    Composed here, not through the conversion paths' shared warning. This step
-    writes no frontmatter and has no null fields to explain, and it fires on a
-    probe that may have succeeded.
-
-    Call only when ``_record_version`` returned ``False`` for a run that did
-    obtain material.
+    Call only when ``_record_version`` returned ``False`` after a fetch.
     """
     if _latest_version(probe) is not None:
         raise ValueError(
@@ -462,7 +418,6 @@ def main():
 
     # Check for version drift before fetching
     probe = resolve_metadata(args.arxiv_id, args.metadata_handoff, _probe_metadata)
-    # Read once, so every decision below sees the same record.
     cached = _read_cached_version(paper_dir)
     looked_up = _latest_version(probe)
     latest = _target_version(
@@ -490,12 +445,8 @@ def main():
             print(f"⚠ Version drift detected: cached={cached}, latest={latest}")
         print()
 
-    # Download the revision this run records — the one the record names, or
-    # the recorded one where _target_version keeps it — so the version the
-    # sidecar records is the one on disk even when the record trails what
-    # arXiv serves, as the fallback's can. With no version, the id is
-    # downloaded as given (arXiv's latest, unless it names a revision) and
-    # nothing is recorded.
+    # Download the revision this run records, so the sidecar matches the disk.
+    # With no version, the id is downloaded as given and nothing is recorded.
     download_id = latest or args.arxiv_id
     has_source = fetch_source(
         download_id,

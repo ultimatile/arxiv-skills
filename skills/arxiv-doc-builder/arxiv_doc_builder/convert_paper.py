@@ -93,19 +93,13 @@ def main():
     print("=" * 60)
     print()
 
-    # One metadata lookup serves every step. Each child reads its outcome from
-    # a file in a directory created for this run, so no child can pick up a
-    # result left by an earlier run, and a failed lookup reaches each child
-    # with its cause. The directory outlives both steps and is removed when the
-    # block exits by returning, sys.exit or an exception (not when the process
-    # is killed outright, e.g. by SIGKILL).
+    # One lookup serves every step, handed over in a file in a fresh per-run
+    # directory, so no step reads an earlier run's result.
     print("Looking up the paper's metadata record...")
     fetched = fetch_metadata(args.arxiv_id)
     print()
     with tempfile.TemporaryDirectory(prefix="convert-paper-") as handoff_dir:
-        # Resolved, since tempfile can fall back to a relative directory, and
-        # a relative path could start with "-", which argparse in the child
-        # would read as an option.
+        # Absolute, so the child's argparse cannot read it as an option.
         handoff = Path(handoff_dir).resolve() / "metadata.json"
         write_metadata_handoff(handoff, args.arxiv_id, fetched)
         handoff_args = ["--metadata-handoff", str(handoff)]
