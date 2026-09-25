@@ -42,8 +42,9 @@ rather than carried.
 
 - `ok`. A record was read.
 - `unavailable`. A record was sought and none the converter could use was
-  read. The conversion names the cause on stderr as it runs, and that cause
-  says what each source it asked said.
+  read. The conversion names the cause on stderr as it runs: what each source
+  it asked said, or why a lookup handed over from `convert-paper` could not
+  be read.
 - `not_requested`. The conversion ran with no arXiv id, so no record was
   sought. Among the manual PDF conversion scripts, `convert_pdf_simple.py` is
   the one that takes an `--arxiv-id`, and documents from the rest always carry

@@ -1,16 +1,9 @@
 """Contract tests for the metadata lookup and the frontmatter producer.
 
-The frontmatter is the provenance surface a downstream consumer reads, so the
-schema must be total (every key always present) and the emitted text must be
-valid, re-parseable YAML, including the contract where a value the answering
-record did not supply renders as YAML null instead of an absent key. The
-document draws no further conclusion from such a null, and neither do these
-tests: what they pin is that a value is present exactly when a record supplied
-one this module could parse and retain.
-
-The round-trip assertions use PyYAML (a test-only dependency) as an independent
-oracle; ``importorskip`` keeps the suite green in a bare environment without it,
-while the structural assertions below pin the contract with no dependency.
+The schema is total (every key always present; an unsupplied value renders
+as YAML null, or ``[]`` for ``categories``) and the text is valid YAML. Round-trips use PyYAML as an independent
+oracle, skipped when it is not installed; the structural assertions need no
+dependency.
 
 The lookup tests replace the HTTP transport and read DataCite responses from
 ``fixtures/datacite``, reduced from real responses to the attributes the
@@ -247,13 +240,9 @@ def test_pdf_style_raw_author_with_newline_stays_valid_yaml():
 
 
 def test_non_printable_characters_are_stripped_and_yaml_stays_valid():
-    # Control characters and the U+FFFE/U+FFFF noncharacters are garbage in
-    # metadata, and the abstract's literal block scalar cannot escape them, so
-    # normalization drops them outright. The frontmatter must stay parseable on
-    # both the quoted-scalar (title, authors) and block-scalar (abstract) paths.
-    # Reachable inputs: XML 1.0 permits raw C1 controls in arXiv's summary, a
-    # JSON string can carry one through a \u escape, and pypdf metadata can
-    # yield U+FFFF via a strict UTF-16BE decode of \xff\xff.
+    # All reachable: raw C1 controls in arXiv's XML, \u escapes in DataCite's
+    # JSON, U+FFFF from pypdf decoding \xff\xff. The abstract's block scalar
+    # cannot escape them, so they are dropped.
     controls = "".join(chr(c) for c in (0x07, 0x1B, 0x80, 0x9F, 0x7F, 0xFFFE, 0xFFFF))
     meta = ArxivMetadata(
         title="A" + controls + "B",
@@ -338,6 +327,14 @@ def transport(monkeypatch):
     return install
 
 
+def _datacite_record(result: MetadataFetch) -> ArxivMetadata:
+    """The record ``result`` carries, asserting that DataCite answered."""
+    assert result.status == METADATA_OK
+    assert result.metadata is not None
+    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+    return result.metadata
+
+
 def _datacite_requests(requested: list[str]) -> list[str]:
     return [url for url in requested if url.startswith(arxiv_metadata._DATACITE_URL)]
 
@@ -401,9 +398,7 @@ def test_datacite_answers_when_arxiv_does_not(transport, arxiv_outcome, cause):
     assert _datacite_requests(requested) == [
         arxiv_metadata._DATACITE_URL + "2409.03108"
     ]
-    assert result.status == METADATA_OK
-    assert result.metadata is not None
-    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+    _datacite_record(result)
 
 
 @_ARXIV_FAILURES
@@ -497,12 +492,8 @@ _ATOM_WITHOUT_AN_ID = _ATOM_ENTRY.replace(
 def test_a_feed_that_does_not_identify_the_paper_is_not_read_as_its_record(
     transport, monkeypatch, feed, arxiv_id, cause
 ):
-    # Such a feed parses exactly like one that does. Read at face value it puts
-    # another paper's title, authors and DOI into the document, and — because
-    # the chain branches on the status alone — an `ok` there would also keep
-    # the fallback from being asked. Discarding only `version` would leave both
-    # of those intact, so the whole record is refused with a cause, and the
-    # entry's other fields are never read.
+    # Refused whole, before its other fields are read: an `ok` would put
+    # another paper's fields in the document and keep the fallback unasked.
     parsed: list[object] = []
     monkeypatch.setattr(arxiv_metadata, "_parse_entry", parsed.append)
     transport(_http_error(404), arxiv=feed)
@@ -523,10 +514,7 @@ def test_a_feed_naming_another_paper_leaves_the_fallback_to_answer(transport):
     assert _datacite_requests(requested) == [
         arxiv_metadata._DATACITE_URL + "2409.03108"
     ]
-    assert result.status == METADATA_OK
-    assert result.metadata is not None
-    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
-    assert result.metadata.title != "A Study of Things"
+    assert _datacite_record(result).title != "A Study of Things"
 
 
 def test_an_entry_id_the_url_parser_rejects_still_identifies_the_paper(transport):
@@ -793,6 +781,18 @@ def test_a_rejected_id_is_reported_by_what_arxiv_said(transport):
     )
 
 
+def test_a_rejected_id_without_a_summary_is_reported_by_its_status(transport):
+    feed = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry><id>https://arxiv.org/api/errors#unspecified</id></entry>
+</feed>
+"""
+    rejected = _http_error(400, url=arxiv_metadata._ARXIV_API_URL, fp=io.BytesIO(feed))
+    transport(_http_error(404), arxiv=rejected)
+    result = fetch_metadata("2606.09995")
+    assert result.failure_cause.startswith("arXiv: HTTP 400;")
+
+
 def test_an_error_entry_without_a_summary_still_names_a_cause(transport):
     # The warning prints the cause verbatim. An error entry can arrive without
     # a summary, and the fallback literal is what keeps that line from being
@@ -852,9 +852,7 @@ def test_a_trickling_arxiv_leg_leaves_the_fallback_its_time(transport):
     result = fetch_metadata("2409.03108", deadline=0.4)
     elapsed = time.monotonic() - started
 
-    assert result.status == METADATA_OK
-    assert result.metadata is not None
-    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+    _datacite_record(result)
     assert elapsed < 0.9, "the arXiv leg was abandoned, not waited out"
 
 
@@ -898,9 +896,7 @@ def test_an_unclassified_arxiv_failure_still_reaches_the_fallback(transport):
     assert _datacite_requests(requested) == [
         arxiv_metadata._DATACITE_URL + "2409.03108"
     ]
-    assert result.status == METADATA_OK
-    assert result.metadata is not None
-    assert result.metadata.source == arxiv_metadata.METADATA_SOURCE_DATACITE
+    _datacite_record(result)
 
 
 def test_a_requested_revision_with_no_listed_revisions_is_ok(transport):
@@ -1354,12 +1350,8 @@ def test_a_deadline_that_is_not_an_int_or_float_is_rejected_before_the_lookup(
 
 
 def test_the_lookup_takes_exactly_one_positional_argument():
-    # The stubs that stand in for this function across the suite are
-    # one-argument lambdas. A second positional parameter here would keep
-    # every call site working while every one of those stubs raised — and the
-    # stubs are what keep the suite off the network, so the failure would show
-    # up as a real request rather than as a signature error. The arity is part
-    # of the contract, so it is pinned rather than assumed.
+    # The suite's one-argument stubs keep it off the network; a second
+    # positional parameter would make them raise instead.
     import inspect
 
     positional = [
@@ -1413,6 +1405,15 @@ def test_a_handoff_reads_back_equal_to_what_was_written(tmp_path, fetch):
     path = tmp_path / "handoff.json"
     write_metadata_handoff(path, "2606.09995", fetch)
     assert read_metadata_handoff(path, "2606.09995") == fetch
+
+
+def test_the_writer_refuses_what_the_reader_would_reject(tmp_path):
+    # Refused in the parent, rather than read back as unavailable in each child.
+    path = tmp_path / "handoff.json"
+    fetch = MetadataFetch(METADATA_OK, metadata=ArxivMetadata(title="T"))
+    with pytest.raises(ValueError):
+        write_metadata_handoff(path, "2606.09995", fetch)
+    assert not path.exists()
 
 
 def test_a_record_naming_a_source_outside_the_vocabulary_is_refused():
