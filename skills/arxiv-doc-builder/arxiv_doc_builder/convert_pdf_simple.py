@@ -43,11 +43,11 @@ def main():
     # naming neither the option nor this script. Exit 1, since exit 2 belongs
     # to the ambiguous-main-tex channel.
     if args.metadata_handoff is not None and not args.arxiv_id:
-        print("Error: --metadata-handoff needs --arxiv-id")
+        print("Error: --metadata-handoff needs --arxiv-id", file=sys.stderr)
         sys.exit(1)
 
     if not args.pdf_path.exists():
-        print(f"Error: PDF file not found: {args.pdf_path}")
+        print(f"Error: PDF file not found: {args.pdf_path}", file=sys.stderr)
         sys.exit(1)
 
     output_path = args.output or args.pdf_path.with_suffix(".md")

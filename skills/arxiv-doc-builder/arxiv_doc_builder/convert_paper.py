@@ -99,7 +99,9 @@ def main():
     # with its cause. The directory outlives both steps and is removed when the
     # block exits by returning, sys.exit or an exception (not when the process
     # is killed outright, e.g. by SIGKILL).
+    print("Looking up the paper's metadata record...")
     fetched = fetch_metadata(args.arxiv_id)
+    print()
     with tempfile.TemporaryDirectory(prefix="convert-paper-") as handoff_dir:
         # Resolved, since tempfile can fall back to a relative directory, and
         # a relative path could start with "-", which argparse in the child

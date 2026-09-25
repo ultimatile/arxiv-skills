@@ -60,7 +60,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 # arXiv's own Atom API, the source asked first. It answers out of the system the
 # source and PDF downloads come from, so the revision it reports is the revision
@@ -96,7 +96,7 @@ METADATA_DEADLINE_SECONDS = 5.0
 # 1.10 s to 1.19 s every time. An even split therefore cuts off no healthy
 # arXiv response and still leaves the fallback well over the time it needs. At
 # the default deadline the arXiv attempt may draw 2.5 s and the fallback gets
-# whatever is left, so at least the other 2.5 s. That floor is what matters: the
+# whatever is left, so about the other 2.5 s. That floor is what matters: the
 # fallback's shortest budget comes when the arXiv attempt spent its whole share,
 # and a share it could spend whole is what keeps the fallback reachable at all.
 _ARXIV_DEADLINE_SHARE = 0.5
@@ -364,21 +364,14 @@ def _revision_dates(
     return versions
 
 
-def _latest_revision(attributes: dict[str, Any]) -> Optional[int]:
-    """The latest revision DataCite lists for the paper, or ``None``."""
-    return max(
-        _revision_dates(attributes, date_types=_REVISION_DATE_TYPES), default=None
-    )
-
-
-def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
+def _parse_record(bare_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
     """Map DataCite's ``data.attributes`` onto the frontmatter fields.
 
-    ``arxiv_id`` is the id as requested. When it names a revision, ``version``
-    records that revision; every other field describes the record DataCite
-    holds for the paper, which follows the latest revision.
+    ``bare_id`` names no revision, since DataCite holds one record per paper
+    and every field describes it: ``version`` is the latest revision the record
+    lists, and the other fields follow that revision too, except ``published``,
+    which is the first revision's date.
     """
-    bare_id, requested = split_version(arxiv_id)
 
     title = next(
         (
@@ -404,14 +397,11 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
         if normalized:
             authors.append(normalized)
 
-    latest = _latest_revision(attributes)
+    latest = max(
+        _revision_dates(attributes, date_types=_REVISION_DATE_TYPES), default=None
+    )
     submitted = _revision_dates(attributes, date_types=("Submitted",))
-    if requested is not None:
-        version: Optional[str] = arxiv_id
-    elif latest is not None:
-        version = f"{bare_id}v{latest}"
-    else:
-        version = None
+    version = f"{bare_id}v{latest}" if latest is not None else None
 
     first_date = _CALENDAR_DATE.match(submitted.get(1) or "")
     published = first_date.group() if first_date else None
@@ -558,14 +548,13 @@ def _identity_cause(record: ArxivMetadata, query: str) -> Optional[str]:
     version = record.version
     if version is None:
         return "arXiv's entry carries no id to identify the paper by"
-    revision = _VERSION_SUFFIX.search(version)
+    bare_entry, revision = split_version(version)
     if revision is None:
         return f"arXiv's entry id names no revision: {version}"
-    bare_entry = version[: revision.start()]
     bare_query, requested = split_version(query)
     if bare_entry != bare_query:
         return f"arXiv answered with a record for {bare_entry}, not {bare_query}"
-    if requested is not None and int(revision.group(1)) != requested:
+    if requested is not None and revision != requested:
         return f"arXiv answered with {version}, not the requested {query}"
     return None
 
@@ -579,6 +568,31 @@ def _http_cause(source: str, code: int) -> str:
     return f"HTTP {code}"
 
 
+def _get(
+    url: str, timeout: float, http_cause: Callable[[urllib.error.HTTPError], str]
+) -> Union[bytes, MetadataFetch]:
+    """The body ``url`` answers with, or ``unavailable`` saying why there is none.
+
+    ``http_cause`` words an HTTP failure for its source, and may read the error
+    response's body to do so.
+    """
+    try:
+        with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        # HTTPError subclasses URLError, so it must be caught first. It is also
+        # an open response holding a socket, which urlopen raised before any
+        # ``with`` could bind it.
+        try:
+            return _unavailable(http_cause(exc))
+        finally:
+            exc.close()
+    except urllib.error.URLError as exc:
+        return _unavailable(f"URLError: {exc.reason}")
+    except OSError as exc:
+        return _unavailable(_cause(exc))
+
+
 def _arxiv_error_cause(exc: urllib.error.HTTPError) -> str:
     """What an arXiv HTTP failure says, preferring its error entry.
 
@@ -590,10 +604,6 @@ def _arxiv_error_cause(exc: urllib.error.HTTPError) -> str:
         entry = ET.parse(exc).find(".//atom:entry", _NS)
     except Exception:
         entry = None
-    finally:
-        # An HTTPError is an open response holding a socket, and urlopen raised
-        # it before any ``with`` could bind it.
-        exc.close()
     if entry is not None and _is_error_entry(entry):
         summary = _normalize(_atom_text(entry, "atom:summary"))
         if summary:
@@ -610,20 +620,15 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
     """
     query = _archive_form(arxiv_id)
     url = _ARXIV_API_URL + "?" + urllib.parse.urlencode({"id_list": query})
+    raw = _get(url, timeout, _arxiv_error_cause)
+    if isinstance(raw, MetadataFetch):
+        return raw
     try:
-        with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
-            tree = ET.parse(resp)
-    except urllib.error.HTTPError as exc:
-        # HTTPError subclasses URLError, so it must be caught first.
-        return _unavailable(_arxiv_error_cause(exc))
-    except urllib.error.URLError as exc:
-        return _unavailable(f"URLError: {exc.reason}")
-    except OSError as exc:
-        return _unavailable(_cause(exc))
+        feed = ET.fromstring(raw)
     except ET.ParseError as exc:
         return _unavailable(f"arXiv returned malformed XML: {exc}")
 
-    entry = tree.find(".//atom:entry", _NS)
+    entry = feed.find(".//atom:entry", _NS)
     if entry is None:
         return _unavailable("arXiv returned no record for this id")
     if _is_error_entry(entry):
@@ -642,31 +647,24 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     """One request to DataCite and the classification of its outcome.
 
     Returns ``unavailable`` with a cause for every failure it anticipates. An
-    unanticipated exception still propagates, and ``fetch_metadata`` turns it
-    into ``unavailable`` too.
+    unanticipated exception still propagates, and ``_bounded``, which runs this
+    leg, turns it into ``unavailable`` too.
     """
     bare_id, requested = split_version(arxiv_id)
     doi_id = _archive_form(bare_id)
     url = _DATACITE_URL + urllib.parse.quote(doi_id, safe="/")
-    try:
-        with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
-            raw = resp.read()
-    except urllib.error.HTTPError as exc:
-        # HTTPError subclasses URLError, so it must be caught first. It is also
-        # an open response, which urlopen raised before any ``with`` bound it.
-        exc.close()
+
+    def http_cause(exc: urllib.error.HTTPError) -> str:
         if exc.code == 404:
             # ``doi_id`` is the id as the DOI spells it. For a legacy id naming
             # a subject class that is the archive alone, and so not
             # ``bare_id``; for every other id the two coincide.
-            return _unavailable(
-                f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
-            )
-        return _unavailable(_http_cause("DataCite", exc.code))
-    except urllib.error.URLError as exc:
-        return _unavailable(f"URLError: {exc.reason}")
-    except OSError as exc:
-        return _unavailable(_cause(exc))
+            return f"DataCite has no record for 10.48550/arXiv.{doi_id} (HTTP 404)"
+        return _http_cause("DataCite", exc.code)
+
+    raw = _get(url, timeout, http_cause)
+    if isinstance(raw, MetadataFetch):
+        return raw
 
     try:
         document = json.loads(raw.decode("utf-8"))
@@ -679,18 +677,22 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     if not isinstance(attributes, dict):
         return _unavailable("DataCite response has no data.attributes")
 
-    latest = _latest_revision(attributes)
-    if requested is not None and latest is not None and requested > latest:
-        return _unavailable(
-            f"{arxiv_id} is later than v{latest}, the latest revision "
-            f"DataCite lists for {bare_id}"
-        )
     # Parsed under the id arXiv itself uses — the archive alone, without the
     # subject class — so both sources spell ``version`` the same way. Two
     # spellings would read as two papers at the version-drift check, which
     # deletes the cached source and downloads it again on every swing.
-    canonical = doi_id if requested is None else f"{doi_id}v{requested}"
-    return MetadataFetch(METADATA_OK, metadata=_parse_record(canonical, attributes))
+    record = _parse_record(doi_id, attributes)
+    if requested is not None:
+        _, latest = split_version(record.version or "")
+        if latest is not None and requested > latest:
+            return _unavailable(
+                f"{arxiv_id} is later than v{latest}, the latest revision "
+                f"DataCite lists for {bare_id}"
+            )
+        # A requested revision is recorded as such; every other field still
+        # describes the one record DataCite holds.
+        record = dataclasses.replace(record, version=f"{doi_id}v{requested}")
+    return MetadataFetch(METADATA_OK, metadata=record)
 
 
 def _bounded(
@@ -748,8 +750,8 @@ def _lookup(arxiv_id: str, deadline: float) -> MetadataFetch:
     an outage, a malformed feed — which is what keeps a run that would
     otherwise record nothing supplied with a record.
 
-    Each attempt is bounded in wall time, and the two together spend no more
-    than ``deadline``: the arXiv attempt may take ``_ARXIV_DEADLINE_SHARE`` of
+    Each attempt is bounded in wall time, and the two together spend about
+    ``deadline`` at most, the time to start and join each thread aside: the arXiv attempt may take ``_ARXIV_DEADLINE_SHARE`` of
     it, which leaves the fallback time to answer, and the DataCite attempt what
     is left. When both fail, the cause names what each of them said.
     """

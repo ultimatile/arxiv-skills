@@ -131,7 +131,9 @@ def test_convert_pdf_simple_refuses_a_handoff_with_no_arxiv_id(tmp_path):
     )
     combined = result.stdout + result.stderr
     assert result.returncode == 1, combined
-    assert "--metadata-handoff" in combined
+    # On stderr, where the other scripts report their argument errors, so a
+    # wrapper that reports a failed child from its stderr has the reason.
+    assert "--metadata-handoff" in result.stderr
     assert "Traceback" not in combined
 
 

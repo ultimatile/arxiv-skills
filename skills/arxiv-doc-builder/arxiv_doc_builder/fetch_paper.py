@@ -80,9 +80,12 @@ def _has_cached_source(paper_dir: Path) -> bool:
     The source is the artifact the recorded revision protects: the fetch step
     deletes it, hand edits included, when the revision moves, and reuses it
     without a download when it does not. A cached PDF answers nothing here.
-    The fetch step would still ask for the recorded revision's source, so a
-    revision that no longer exists would fail to download on every run while
-    the PDF alone kept the record alive.
+    With only a PDF cached, the source is still requested on every run, which
+    is how a paper whose source download once failed gets it back. If a
+    recorded revision arXiv does not serve (a hand edit, say) could win there,
+    that request would name it and fail on every run, and the LaTeX path would
+    never return. Nothing on disk tells that case from a paper arXiv serves as
+    a PDF alone, so neither keeps its recorded revision.
     """
     source = paper_dir / "source"
     return source.is_dir() and any(source.rglob("*.tex"))
@@ -471,8 +474,9 @@ def main():
     if looked_up is not None and latest != looked_up:
         print(
             f"Note: the metadata record names {looked_up}, but the cached {latest} "
-            "is kept, since DataCite's record can trail arXiv. The document's "
-            f"frontmatter transcribes that record and names {looked_up}.",
+            "is kept, since DataCite's record can trail arXiv. A conversion that "
+            f"reads this lookup, as convert-paper's does, names {looked_up} in "
+            "its frontmatter.",
             file=sys.stderr,
         )
     refresh = _needs_refresh(cached, latest)
