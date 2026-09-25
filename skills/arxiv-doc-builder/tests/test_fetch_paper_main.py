@@ -27,11 +27,13 @@ def run_main(monkeypatch, tmp_path):
 
     The lookup outcome comes either from ``probe``, standing in for the lookup
     ``main()`` makes itself, or from a handoff file written with ``handoff``, in
-    which case a lookup would fail the test. Returns the paper directory the run
+    which case a lookup would fail the test. Each download reports
+    ``has_source`` / ``has_pdf``, or runs ``download`` when one is given, so a
+    caller can see what was asked for. Returns the paper directory the run
     wrote into, so a caller can check whether the sidecar landed.
     """
 
-    def run(*, probe=None, handoff=None, has_source, has_pdf):
+    def run(*, probe=None, handoff=None, has_source=True, has_pdf=True, download=None):
         argv = ["fetch_paper.py", "2409.03108", "--output-dir", str(tmp_path)]
         if handoff is not None:
             handoff_file = tmp_path / "handoff.json"
@@ -41,8 +43,12 @@ def run_main(monkeypatch, tmp_path):
         else:
             monkeypatch.setattr(fetch_paper, "_probe_metadata", lambda _id: probe)
         monkeypatch.setattr(sys, "argv", argv)
-        monkeypatch.setattr(fetch_paper, "fetch_source", lambda *a, **k: has_source)
-        monkeypatch.setattr(fetch_paper, "fetch_pdf", lambda *a, **k: has_pdf)
+        monkeypatch.setattr(
+            fetch_paper, "fetch_source", download or (lambda *a, **k: has_source)
+        )
+        monkeypatch.setattr(
+            fetch_paper, "fetch_pdf", download or (lambda *a, **k: has_pdf)
+        )
         fetch_paper.main()
         return tmp_path / "2409.03108"
 
@@ -70,7 +76,7 @@ def test_the_probe_takes_exactly_one_positional_argument():
     [("probe_with_version", PROBE_VERSION), ("failed_probe", "2409.03108")],
 )
 def test_the_downloads_name_the_revision_the_sidecar_records(
-    monkeypatch, tmp_path, request, probe_name, downloaded
+    run_main, request, probe_name, downloaded
 ):
     # While the fallback has yet to list a revision arXiv already serves, an
     # unversioned download would put that newer revision on disk under the
@@ -82,17 +88,12 @@ def test_the_downloads_name_the_revision_the_sidecar_records(
         ids.append(arxiv_id)
         return True
 
-    argv = ["fetch_paper.py", "2409.03108", "--output-dir", str(tmp_path)]
-    monkeypatch.setattr(sys, "argv", argv)
-    monkeypatch.setattr(fetch_paper, "_probe_metadata", lambda _id: probe)
-    monkeypatch.setattr(fetch_paper, "fetch_source", record)
-    monkeypatch.setattr(fetch_paper, "fetch_pdf", record)
-    fetch_paper.main()
+    run_main(probe=probe, download=record)
     assert ids == [downloaded, downloaded]
 
 
 def test_a_record_of_a_later_revision_is_kept_while_the_lookup_lags(
-    monkeypatch, tmp_path
+    run_main, tmp_path, capsys
 ):
     # The fallback reports PROBE_VERSION while the sidecar already records a
     # later revision. Refreshing would delete the cached source, edits
@@ -112,14 +113,14 @@ def test_a_record_of_a_later_revision_is_kept_while_the_lookup_lags(
         calls.append((arxiv_id, refresh))
         return True
 
-    argv = ["fetch_paper.py", "2409.03108", "--output-dir", str(tmp_path)]
-    monkeypatch.setattr(sys, "argv", argv)
-    monkeypatch.setattr(fetch_paper, "_probe_metadata", lambda _id: probe_with_version)
-    monkeypatch.setattr(fetch_paper, "fetch_source", record)
-    monkeypatch.setattr(fetch_paper, "fetch_pdf", record)
-    fetch_paper.main()
+    run_main(probe=probe_with_version, download=record)
     assert calls == [(later, False), (later, False)]
     assert fetch_paper._read_cached_version(paper_dir) == later
+    # The document will name PROBE_VERSION while the body is `later`, so the
+    # run says which it kept.
+    err = capsys.readouterr().err
+    assert PROBE_VERSION in err
+    assert later in err
 
 
 def test_material_without_a_version_warns_and_writes_no_sidecar(

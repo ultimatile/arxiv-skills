@@ -410,6 +410,22 @@ def test_a_failure_on_both_sources_names_what_each_one_said(transport):
 
 
 @pytest.mark.parametrize(
+    ("stored", "decoded"),
+    [
+        ("a &gt; b &amp; c", "a > b & c"),
+        ("x &notin; S", "x \u2209 S"),
+        ("&#65;&#x42;", "AB"),
+        # Legacy forms without the semicolon are literal text here.
+        ("&notation and &para", "&notation and &para"),
+        ("&bogus;", "&bogus;"),
+    ],
+    ids=["named", "longer-name", "numeric", "no-semicolon", "unknown-name"],
+)
+def test_datacite_prose_decodes_only_complete_entity_references(stored, decoded):
+    assert arxiv_metadata._prose(stored) == decoded
+
+
+@pytest.mark.parametrize(
     ("id_url", "version"),
     [
         ("http://arxiv.org/abs/2409.03108v2", "2409.03108v2"),
@@ -1337,15 +1353,12 @@ def test_a_handoff_reads_back_equal_to_what_was_written(tmp_path, fetch):
     assert read_metadata_handoff(path, "2606.09995") == fetch
 
 
-def test_the_handoff_schema_lists_every_field_of_the_record():
-    # The two lists are hand-maintained, and the reader rejects a handoff whose
-    # key set differs from them. A field added to the record without being
-    # listed here would make every handoff unreadable, and `unavailable` is
-    # what a child would then write — discarding a parent lookup that
-    # succeeded, with the suite still green.
-    listed = set(arxiv_metadata._HANDOFF_SCALARS) | set(arxiv_metadata._HANDOFF_LISTS)
-    fields = {f.name for f in arxiv_metadata.dataclasses.fields(ArxivMetadata)}
-    assert listed == fields
+def test_a_record_naming_a_source_outside_the_vocabulary_is_refused():
+    # fetch_paper keeps a recorded revision over the record's only when the
+    # fallback answered, so a record naming anything else would decide that
+    # rule by a value no lookup produces.
+    with pytest.raises(ValueError):
+        ArxivMetadata(source="bogus")
 
 
 def test_a_handoff_path_given_as_a_string_is_read(tmp_path):

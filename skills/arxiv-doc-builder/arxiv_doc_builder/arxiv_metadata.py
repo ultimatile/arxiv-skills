@@ -24,10 +24,12 @@ Design constraints:
   valid, re-parseable YAML.
 - **The schema is total.** ``build_frontmatter`` always emits every key, even
   when the lookup failed. Unknown values render as YAML null (a bare
-  ``key:``), which a parser reads as ``None``.
-- **A null carries no inference about the paper.** For the fields a record
-  supplies, a value is present exactly when the answering record supplied one
-  this module could parse and retain, and null otherwise. What a null implies
+  ``key:``), which a parser reads as ``None``, except ``categories``, which
+  renders as an empty list.
+- **An empty field carries no inference about the paper.** For the fields a
+  record supplies, a value is present exactly when the answering record
+  supplied one this module could parse and retain, and the field is empty
+  otherwise, rendered as the previous point says. What an empty field implies
   about the paper — whether it was published, say — is a bibliographic
   question this converter does not answer; the arxiv-lookup skill is where
   that belongs. See ``references/output-format.md``.
@@ -47,6 +49,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import html
+import html.entities
 import json
 import re
 import threading
@@ -127,6 +130,9 @@ _VERSION_SUFFIX = re.compile(r"v(\d+)\Z")
 # paper's DOI under that form too, so both requests drop the subject class.
 _SUBJECT_CLASS = re.compile(r"^([a-z]+(?:-[a-z]+)?)\.[A-Za-z]+(?:-[A-Za-z]+)*/")
 
+# An entity reference with its terminating semicolon: named, decimal or hex.
+_ENTITY = re.compile(r"&(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);")
+
 # The revision a DataCite date entry describes, read off the front of its
 # ``dateInformation`` label.
 _REVISION_LABEL = re.compile(r"v(\d+)")
@@ -174,6 +180,10 @@ class ArxivMetadata:
     # handoff file when ``convert_paper`` started it; the frontmatter does not
     # carry it.
     source: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.source is not None and self.source not in METADATA_SOURCES:
+            raise ValueError(f"source {self.source!r} is not one of {METADATA_SOURCES}")
 
 
 @dataclass(frozen=True)
@@ -276,10 +286,32 @@ def _prose(text: Optional[str]) -> Optional[str]:
     DataCite stores the title, author names and abstract with entities such as
     ``&gt;`` left encoded. The Atom leg uses ``_normalize`` instead, since an
     XML parser has already decoded them.
+
+    Only a complete reference, terminated by ``;`` and naming a known entity,
+    is decoded. ``html.unescape`` alone also decodes HTML's legacy forms
+    without the semicolon, turning literal text such as ``&notation`` into
+    ``¬ation``.
     """
     if text is None:
         return None
-    return _normalize(html.unescape(text))
+    return _normalize(_ENTITY.sub(_decode_entity, text))
+
+
+def _decode_entity(match: re.Match[str]) -> str:
+    reference = match.group()
+    if reference.startswith("&#") or reference[1:] in html.entities.html5:
+        return html.unescape(reference)
+    return reference
+
+
+def _archive_form(arxiv_id: str) -> str:
+    """``arxiv_id`` with a legacy subject class dropped, as both sources spell it.
+
+    "math.GT/0309136v2" -> "math/0309136v2"; any other id is returned as is.
+    Both lookups ask under this form, and ``version`` is spelled in it, so a
+    revision recorded from either source compares equal to the other's.
+    """
+    return _SUBJECT_CLASS.sub(r"\1/", arxiv_id)
 
 
 def split_version(arxiv_id: str) -> tuple[str, Optional[int]]:
@@ -332,6 +364,13 @@ def _revision_dates(
     return versions
 
 
+def _latest_revision(attributes: dict[str, Any]) -> Optional[int]:
+    """The latest revision DataCite lists for the paper, or ``None``."""
+    return max(
+        _revision_dates(attributes, date_types=_REVISION_DATE_TYPES), default=None
+    )
+
+
 def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
     """Map DataCite's ``data.attributes`` onto the frontmatter fields.
 
@@ -365,12 +404,12 @@ def _parse_record(arxiv_id: str, attributes: dict[str, Any]) -> ArxivMetadata:
         if normalized:
             authors.append(normalized)
 
-    listed = _revision_dates(attributes, date_types=_REVISION_DATE_TYPES)
+    latest = _latest_revision(attributes)
     submitted = _revision_dates(attributes, date_types=("Submitted",))
     if requested is not None:
         version: Optional[str] = arxiv_id
-    elif listed:
-        version = f"{bare_id}v{max(listed)}"
+    elif latest is not None:
+        version = f"{bare_id}v{latest}"
     else:
         version = None
 
@@ -569,7 +608,7 @@ def _lookup_arxiv(arxiv_id: str, timeout: float) -> MetadataFetch:
     under the archive alone and returns an empty feed for the other spelling,
     which would send every one of those papers to the fallback.
     """
-    query = _SUBJECT_CLASS.sub(r"\1/", arxiv_id)
+    query = _archive_form(arxiv_id)
     url = _ARXIV_API_URL + "?" + urllib.parse.urlencode({"id_list": query})
     try:
         with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
@@ -607,7 +646,7 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     into ``unavailable`` too.
     """
     bare_id, requested = split_version(arxiv_id)
-    doi_id = _SUBJECT_CLASS.sub(r"\1/", bare_id)
+    doi_id = _archive_form(bare_id)
     url = _DATACITE_URL + urllib.parse.quote(doi_id, safe="/")
     try:
         with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
@@ -640,10 +679,10 @@ def _lookup_datacite(arxiv_id: str, timeout: float) -> MetadataFetch:
     if not isinstance(attributes, dict):
         return _unavailable("DataCite response has no data.attributes")
 
-    listed = _revision_dates(attributes, date_types=_REVISION_DATE_TYPES)
-    if requested is not None and listed and requested > max(listed):
+    latest = _latest_revision(attributes)
+    if requested is not None and latest is not None and requested > latest:
         return _unavailable(
-            f"{arxiv_id} is later than v{max(listed)}, the latest revision "
+            f"{arxiv_id} is later than v{latest}, the latest revision "
             f"DataCite lists for {bare_id}"
         )
     # Parsed under the id arXiv itself uses — the archive alone, without the
@@ -803,17 +842,14 @@ def fetch_metadata(
         return _unavailable(_cause(exc))
 
 
-_HANDOFF_SCALARS = (
-    "title",
-    "version",
-    "published",
-    "primary_category",
-    "doi",
-    "journal",
-    "abstract",
-    "source",
+# The handoff carries every field of the record: the lists are the fields
+# that default to an empty list, and every other field is text or null.
+_HANDOFF_LISTS = tuple(
+    f.name for f in dataclasses.fields(ArxivMetadata) if f.default_factory is list
 )
-_HANDOFF_LISTS = ("authors", "categories")
+_HANDOFF_SCALARS = tuple(
+    f.name for f in dataclasses.fields(ArxivMetadata) if f.name not in _HANDOFF_LISTS
+)
 
 
 def write_metadata_handoff(path: Path, arxiv_id: str, fetch: MetadataFetch) -> None:
@@ -841,20 +877,12 @@ def _handoff_metadata(value: object) -> Optional[ArxivMetadata]:
     for key in _HANDOFF_SCALARS:
         if value[key] is not None and not isinstance(value[key], str):
             raise ValueError(f"metadata field {key!r} is not a string or null")
-    # The one field with a closed vocabulary, and the one a step branches on:
-    # ``fetch_paper`` keeps a recorded revision over the record's only when the
-    # fallback answered, so a handoff naming something else here would decide
-    # that rule by a value no lookup can produce. Rejected like any other field
-    # of the wrong shape.
-    if value["source"] is not None and value["source"] not in METADATA_SOURCES:
-        raise ValueError(
-            f"metadata field 'source' is {value['source']!r}, not one of "
-            f"{METADATA_SOURCES}"
-        )
     for key in _HANDOFF_LISTS:
         items = value[key]
         if not isinstance(items, list) or not all(isinstance(i, str) for i in items):
             raise ValueError(f"metadata field {key!r} is not a list of strings")
+    # The constructor rejects a ``source`` outside the vocabulary, and the
+    # ValueError reaches the caller like any other field of the wrong shape.
     return ArxivMetadata(**value)
 
 
@@ -1056,7 +1084,8 @@ def build_frontmatter(
     # Normalize every emitted text scalar here, so the block is clean and valid
     # regardless of how the metadata was built — the PDF fallback path
     # constructs ArxivMetadata straight from raw PDF-embedded strings, which
-    # never passed through the record-side normalization in _parse_record.
+    # never passed through the record-side normalization in _parse_record
+    # (DataCite) or _parse_entry (arXiv).
     title = _normalize(m.title) or _normalize(fallback_title)
     author_names = [name for name in (_normalize(a) for a in m.authors) if name]
     authors = ", ".join(author_names) if author_names else None

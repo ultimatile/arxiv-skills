@@ -460,13 +460,21 @@ def main():
     probe = resolve_metadata(args.arxiv_id, args.metadata_handoff, _probe_metadata)
     # Read once, so every decision below sees the same record.
     cached = _read_cached_version(paper_dir)
+    looked_up = _latest_version(probe)
     latest = _target_version(
         paper_dir,
-        _latest_version(probe),
+        looked_up,
         cached,
         pinned=split_version(args.arxiv_id)[1] is not None,
         source=probe.metadata.source if probe.metadata else None,
     )
+    if looked_up is not None and latest != looked_up:
+        print(
+            f"Note: the metadata record names {looked_up}, but the cached {latest} "
+            "is kept, since DataCite's record can trail arXiv. The document's "
+            f"frontmatter transcribes that record and names {looked_up}.",
+            file=sys.stderr,
+        )
     refresh = _needs_refresh(cached, latest)
     if refresh:
         if cached is None:
