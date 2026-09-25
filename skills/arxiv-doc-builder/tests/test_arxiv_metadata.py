@@ -940,28 +940,46 @@ def _submitted(*labels: str) -> list[dict]:
     ]
 
 
-def test_a_record_naming_another_paper_is_unavailable(transport):
+@pytest.mark.parametrize(
+    ("document", "named"),
+    [
+        (_record("2409.03108"), "'10.48550/arxiv.2409.03108'"),
+        (b'{"data": {"attributes": {"titles": [{"title": "T"}]}}}', "None"),
+    ],
+    ids=["another-paper", "no-doi"],
+)
+def test_a_record_not_naming_the_doi_is_refused_unread(
+    transport, monkeypatch, document, named
+):
     # The fields of another paper's record would otherwise reach the document
-    # as this paper's, under metadata_status: ok.
-    transport(_record("2409.03108"))
-    result = fetch_metadata("2001.00001")
-    assert result.status == METADATA_UNAVAILABLE
-    assert "DataCite answered with a record for '10.48550/arxiv.2409.03108'" in (
-        result.failure_cause
+    # as this paper's, under metadata_status: ok. The record is refused before
+    # any of them is read.
+    parsed: list[object] = []
+    monkeypatch.setattr(
+        arxiv_metadata, "_parse_record", lambda *args: parsed.append(args)
     )
-
-
-def test_a_record_that_names_no_doi_is_unavailable(transport):
-    transport(b'{"data": {"attributes": {"titles": [{"title": "T"}]}}}')
+    transport(document)
     result = fetch_metadata("2001.00001")
     assert result.status == METADATA_UNAVAILABLE
-    assert "DataCite answered with a record for None" in result.failure_cause
+    assert f"DataCite answered with a record for {named}" in result.failure_cause
+    assert parsed == []
 
 
-def test_a_listed_revision_without_a_usable_date_still_counts_as_latest():
+def test_a_record_naming_the_doi_in_another_case_is_read(transport):
+    # DOIs are case-insensitive, so a record spelling the requested one in
+    # upper case names the same paper.
+    document = json.loads(_record("2409.03108"))
+    document["data"]["id"] = "10.48550/ARXIV.2409.03108"
+    transport(json.dumps(document).encode())
+    result = fetch_metadata("2409.03108")
+    assert result.status == METADATA_OK
+
+
+@pytest.mark.parametrize("date_type", ["Submitted", "Withdrawn"])
+def test_a_listed_revision_without_a_usable_date_still_counts_as_latest(date_type):
     attributes = {
         "dates": _submitted("v1")
-        + [{"dateType": "Submitted", "dateInformation": "v2", "date": None}]
+        + [{"dateType": date_type, "dateInformation": "v2", "date": None}]
     }
     meta = arxiv_metadata._parse_record("2001.00001", attributes)
     assert meta.version == "2001.00001v2"
