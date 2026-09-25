@@ -81,8 +81,8 @@ Field notes:
   the source that answered — arXiv is asked for the revision requested and
   returns its entry, while DataCite holds one record per paper and its fields
   follow that paper's latest revision. `version` can also name a revision other
-  than the one converted: the fetch step converts the revision
-  `.arxiv-fetch.json` records, and `SKILL.md` states when that differs from
+  than the one converted: the conversion runs on the revision the fetch step
+  keeps, which `.arxiv-fetch.json` records, and `SKILL.md` states when that differs from
   the one the answering record names.
 - `published` is the paper's date (`YYYY-MM-DD`); `conversion_date` is when the
   conversion ran (UTC-aware ISO 8601). They are deliberately distinct.
