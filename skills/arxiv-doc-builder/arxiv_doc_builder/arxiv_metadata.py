@@ -72,10 +72,10 @@ _DATACITE_URL = "https://api.datacite.org/dois/10.48550/arxiv."
 METADATA_DEADLINE_SECONDS = 5.0
 
 # arXiv's share of the deadline; DataCite gets the rest. Over 31 measured
-# lookups arXiv answered in 0.31 s (median) and its stalls cleared on retry,
-# while DataCite took about 1.2 s, so an even split cuts off no healthy answer
-# and, at the default deadline, leaves the fallback room even when arXiv
-# spends its whole share.
+# lookups arXiv answered in 0.31 s (median) and its stalls did not recur when
+# measured again, while DataCite took about 1.2 s, so an even split cuts off
+# no healthy answer and, at the default deadline, leaves the fallback room
+# even when arXiv spends its whole share.
 _ARXIV_DEADLINE_SHARE = 0.5
 
 # The frontmatter's ``metadata_status`` values.
@@ -689,7 +689,13 @@ _HANDOFF_SCALARS = tuple(
 
 
 def write_metadata_handoff(path: Path, arxiv_id: str, fetch: MetadataFetch) -> None:
-    """Write one lookup's outcome for a child process to read back."""
+    """Write one lookup's outcome for a child process to read back.
+
+    Refuses an ``ok`` outcome whose record names no source, which the reader
+    would reject.
+    """
+    if fetch.status == METADATA_OK and fetch.metadata.source is None:  # type: ignore[union-attr]
+        raise ValueError("an ok outcome names no source")
     payload = {"arxiv_id": arxiv_id, "fetch": dataclasses.asdict(fetch)}
     # ASCII-only, so a lone surrogate travels as \u rather than failing.
     path.write_text(json.dumps(payload), encoding="utf-8")
