@@ -66,6 +66,8 @@ def _has_cached_source(paper_dir: Path) -> bool:
 
     A cached PDF does not count: with only a PDF, the source is requested on
     every run, and a bogus recorded revision kept there would fail every time.
+    So for a paper arXiv serves as a PDF alone, the recorded revision follows
+    whichever source answered, moving back and forth while DataCite trails.
     """
     source = paper_dir / "source"
     return source.is_dir() and any(source.rglob("*.tex"))

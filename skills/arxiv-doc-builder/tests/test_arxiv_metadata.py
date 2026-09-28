@@ -1268,17 +1268,11 @@ def test_the_process_exits_without_waiting_for_an_abandoned_lookup():
     assert elapsed < 10
 
 
-def test_an_arxiv_leg_that_leaves_no_time_does_not_ask_datacite(monkeypatch):
+def test_an_arxiv_leg_that_leaves_no_time_does_not_ask_datacite(transport, monkeypatch):
     # The arXiv leg may spend only half the deadline, so this takes a leg that
     # overruns its bound, as a stalled scheduler can make it; a stub clock
     # stands in for that. What arXiv said must still reach the caller.
-    asked: list[str] = []
-
-    def fake_urlopen(url, timeout=None):
-        asked.append(url)
-        raise OSError("offline")
-
-    monkeypatch.setattr(arxiv_metadata.urllib.request, "urlopen", fake_urlopen)
+    asked = transport(OSError("offline"), arxiv=OSError("offline"))
     clock = iter([0.0, 10.0])
     monkeypatch.setattr(
         arxiv_metadata, "time", types.SimpleNamespace(monotonic=lambda: next(clock))
