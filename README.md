@@ -47,7 +47,7 @@ claude plugin install arxiv-skills
 `arxiv-doc-builder` can also be installed as a standalone CLI tool to run `convert-paper` from anywhere:
 
 ```bash
-uv tool install --from 'arxiv-doc-builder @ git+https://github.com/ultimatile/arxiv-skills.git#subdirectory=skills/arxiv-doc-builder'
+uv tool install 'arxiv-doc-builder @ git+https://github.com/ultimatile/arxiv-skills.git#subdirectory=skills/arxiv-doc-builder'
 ```
 
 ```bash
