@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import arxiv_doc_builder
 from arxiv_doc_builder.arxiv_metadata import (
     METADATA_OK,
     METADATA_SOURCE_ARXIV,
@@ -16,6 +17,12 @@ from arxiv_doc_builder.arxiv_metadata import (
     ArxivMetadata,
     MetadataFetch,
 )
+
+# Resolved via the installed package, not a test file: tests live under tests/
+# while the scripts ship in the package and SKILL.md, references/ and
+# pyproject.toml sit one level up, at the skill root.
+PACKAGE_DIR = Path(arxiv_doc_builder.__file__).parent
+SKILL_DIR = PACKAGE_DIR.parent
 
 PROBE_ERROR = "OSError: connection reset"
 PROBE_VERSION = "2409.03108v2"

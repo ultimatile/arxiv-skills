@@ -8,9 +8,8 @@ dep added to the core, or the pdf extra losing a member) fail CI loudly.
 
 import re
 import tomllib
-from pathlib import Path
 
-import arxiv_doc_builder
+from conftest import SKILL_DIR
 
 # A PEP 508 dependency string starts with the distribution name, followed by
 # optional extras / version specifiers / environment markers. The leading run of
@@ -19,9 +18,7 @@ import arxiv_doc_builder
 # hand-picked subset of operators.
 _PEP508_NAME = re.compile(r"[A-Za-z0-9._-]+")
 
-# Resolve pyproject via the package location, matching test_version.py: tests
-# live under tests/ while pyproject.toml sits at the project root.
-_PYPROJECT = Path(arxiv_doc_builder.__file__).parent.parent / "pyproject.toml"
+_PYPROJECT = SKILL_DIR / "pyproject.toml"
 
 
 def _load() -> dict:

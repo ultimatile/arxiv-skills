@@ -1,7 +1,5 @@
 # PDF Conversion
 
-Read this when `convert-paper` prints `No LaTeX source, falling back to naive PDF conversion...`.
-
 ## PDF Conversion Scripts
 
 `convert-paper` only calls `convert_pdf_simple.py` as a naive fallback. The other scripts below are for manual or agent-driven use when the naive output is insufficient. Iterate by trying different scripts and inspecting results.

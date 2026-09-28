@@ -1,7 +1,5 @@
 # Hand Edits to the Source
 
-Read this after editing a file under `{ARXIV_ID}/source/` and re-running `convert-paper`.
-
 The fetch step reuses the cached source, but when the metadata lookup reports a revision that
 `.arxiv-fetch.json` does not record (a different one, or any at all when the file records none), it
 usually downloads again, deleting `source/` and every edit made to it.

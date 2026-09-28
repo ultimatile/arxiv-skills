@@ -1,6 +1,6 @@
 ---
 name: arxiv-doc-builder
-description: Convert arXiv papers to Markdown documentation. Fetches available materials from arXiv (LaTeX source when available + PDF), converts LaTeX to Markdown via pandoc (happy path). PDF-only papers get a naive single-column fallback — use the specialized PDF scripts for better results.
+description: Convert arXiv papers to Markdown documentation. Fetches available materials from arXiv (LaTeX source when available + PDF), converts LaTeX to Markdown via pandoc (happy path). PDF-only papers get a naive single-column fallback — the specialized PDF scripts in references/pdf-conversion.md give better results.
 ---
 
 # arXiv Document Builder
@@ -70,7 +70,7 @@ The metadata lookup, downloads (curl), file extraction (tar), and directory crea
 ### Source Detection
 
 - **LaTeX source available**: Converts with pandoc — this is the reliable path
-- **PDF only**: Falls back to naive single-column text extraction. Output quality varies and should be inspected.
+- **PDF only**: Falls back to naive single-column text extraction
 
 ## Output Structure
 
@@ -88,14 +88,17 @@ Output location: `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md` (default output-dir is 
 
 ## When Conversion Fails or Falls Back to PDF
 
-These procedures apply only in the situation each line names. When one holds, read the file it points to:
+If you edited a file under `{ARXIV_ID}/source/` and re-ran `convert-paper`, read `references/source-edits.md` first and follow it before any line below: the re-run may have replaced or deleted the edited source, and that file says what to do in each case.
+
+When you made no such edit, or once that file no longer tells you to edit again or re-run, read the file that the line matching the output points to. For an output not listed here, act on what the output itself says.
+
+Whichever file you follow, change the source only as it directs. Do NOT attempt broad preprocessing (replacing documentclass, expanding `\newcommand`, removing environments, etc.) — pandoc handles revtex4/revtex4-2, custom commands, `picture` environments, and theorem environments correctly.
 
 - `convert-paper` exits with code 2 after printing `Error: Found N files with \documentclass` → `references/multiple-documentclass.md`
 - It prints `Pandoc conversion failed:`, and the pandoc message after it contains `unexpected (` or `unexpected [` → `references/unknown-arity-macros.md`
 - It prints `Pandoc conversion failed:`, and the pandoc message after it contains neither → `references/pandoc-failures.md`
 - It prints `Pandoc did not finish within` or `Pandoc exceeded the <N> MB memory watchdog`, or a pandoc run has not returned → `references/pandoc-runaway.md`
 - It prints `No LaTeX source, falling back to naive PDF conversion...` → `references/pdf-conversion.md`
-- You edited a file under `{ARXIV_ID}/source/` and re-ran `convert-paper` → `references/source-edits.md`
 
 ## Directory Structure
 

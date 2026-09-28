@@ -1,7 +1,5 @@
 # Troubleshooting: Multiple \documentclass Files
 
-Read this when `convert-paper` exits with code 2 after printing `Error: Found N files with \documentclass`.
-
 Some arXiv papers (e.g., PRL with supplemental material) contain multiple `.tex` files, each with its own `\documentclass`. Automatic selection is unreliable in this case — the canonical example is `1911.04882`, which ships both the main PRL paper and an independent PRL supplement, and either can convert successfully. Since pandoc succeeding is not evidence that the selected file is the correct entry point, `convert-paper` refuses to guess: it fails explicitly with **exit code 2** and lists all candidates.
 
 Example failure output:

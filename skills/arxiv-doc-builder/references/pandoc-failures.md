@@ -1,8 +1,6 @@
 # Troubleshooting: pandoc Conversion Failures
 
-Read this when `convert-paper` prints `Pandoc conversion failed:` and the pandoc message after it contains neither `unexpected (` nor `unexpected [`.
-
-When pandoc fails on a LaTeX source, the error may point to `\end{document}` with `unexpected \end`. This means pandoc's parser broke down due to a syntax issue elsewhere — `\end{document}` itself is not the cause. Do NOT attempt broad preprocessing (replacing documentclass, expanding `\newcommand`, removing environments, etc.) — pandoc handles revtex4/revtex4-2, custom commands, `picture` environments, and theorem environments correctly.
+When pandoc fails on a LaTeX source, the error may point to `\end{document}` with `unexpected \end`. This means pandoc's parser broke down due to a syntax issue elsewhere — `\end{document}` itself is not the cause. Keep to SKILL.md's rule against broad preprocessing.
 
 ## Diagnosis steps
 

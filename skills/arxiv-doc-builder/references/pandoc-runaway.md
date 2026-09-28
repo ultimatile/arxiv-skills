@@ -1,7 +1,5 @@
 # Troubleshooting: Conversion Hangs / Runaway Memory (pandoc never returns)
 
-Read this when `convert-paper` prints `Pandoc did not finish within` or `Pandoc exceeded the <N> MB memory watchdog`, or when a pandoc run has not returned.
-
 A brace-mismatch failure is *fast* — pandoc errors in seconds. A different failure mode is the **hang**: `convert-paper` never returns. `convert_latex.py` bounds pandoc on two axes so this surfaces as a fast error instead of an indefinite hang (both env-overridable):
 
 - **Wall-clock timeout** (`PANDOC_TIMEOUT_SECONDS`, default 180s; `ARXIV_PANDOC_TIMEOUT`). This is the *reliable* control — every observed runaway is killed by it.
@@ -40,4 +38,4 @@ Move the style `.sty` out of the source directory (reversible) or comment its `\
 mv source/arxiv.sty source/arxiv.sty.bak   # pandoc no longer reads it
 ```
 
-Removing a `.sty` is **not** a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders *better* from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched. Before stripping, confirm the `.sty` defines no **content macro** used in the body (e.g. `\newcommand{\co}{ACME}`); if it does, that text would be lost and you must instead provide a stub (`references/unknown-arity-macros.md`). For style-only packages the intersection contains no content macro, so stripping is output-equivalent on the substantive content.
+Removing a `.sty` is **not** a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders *better* from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched. Before stripping, confirm the `.sty` defines no **content macro** used in the body (e.g. `\newcommand{\co}{ACME}`); if it does, stripping would lose that text, so strip the `.sty` anyway and also copy that macro's definition from the `.sty` into a `\providecommand` placed just before `\begin{document}`. For style-only packages the intersection contains no content macro, so stripping is output-equivalent on the substantive content.

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-import arxiv_doc_builder
+from conftest import PACKAGE_DIR
 from arxiv_doc_builder.convert_latex import (
     AmbiguousMainTexError,
     extract_title_from_latex,
@@ -69,7 +69,7 @@ def test_cli_exits_2_on_ambiguity_with_candidates_in_stderr(tmp_path):
     _write_tex(tmp_path, "alpha.tex")
     _write_tex(tmp_path, "beta.tex")
 
-    script = Path(arxiv_doc_builder.__file__).parent / "convert_latex.py"
+    script = PACKAGE_DIR / "convert_latex.py"
     result = subprocess.run(
         [
             sys.executable,
