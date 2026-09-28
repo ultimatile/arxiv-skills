@@ -16,13 +16,12 @@ second.
 import ast
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
 import arxiv_doc_builder
+from conftest import PACKAGE_DIR
 
-_PACKAGE_DIR = Path(arxiv_doc_builder.__file__).parent
 _PACKAGE = arxiv_doc_builder.__name__
 
 
@@ -53,7 +52,7 @@ def _import_pair(tree: ast.Module):
 
 def _modules_with_import_pair():
     found = []
-    for path in sorted(_PACKAGE_DIR.glob("*.py")):
+    for path in sorted(PACKAGE_DIR.glob("*.py")):
         pair = _import_pair(ast.parse(path.read_text(encoding="utf-8")))
         if pair is not None:
             found.append(pytest.param(path, pair, id=path.stem))
@@ -113,7 +112,7 @@ class _Block:
 
 
 sys.meta_path.insert(0, _Block())
-sys.path.insert(0, {str(_PACKAGE_DIR)!r})
+sys.path.insert(0, {str(PACKAGE_DIR)!r})
 '''
 
 

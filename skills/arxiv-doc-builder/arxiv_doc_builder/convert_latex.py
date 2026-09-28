@@ -130,8 +130,8 @@ def _int_env(name: str, default: int) -> int:
 # memory for the slow-leak shape (peak ~= timeout * leak-rate). The RSS WATCHDOG
 # is defense-in-depth for a hypothetical fast-allocating runaway the timeout
 # alone would not contain in time: it polls real resident memory (immune to the
-# RTS/rlimit quirks) and kills early. See SKILL.md "Troubleshooting: Conversion
-# Hangs / Runaway Memory". Both bounds are env-overridable for odd edge cases.
+# RTS/rlimit quirks) and kills early. See references/pandoc-runaway.md in the
+# arxiv-doc-builder skill. Both bounds are env-overridable for odd edge cases.
 PANDOC_TIMEOUT_SECONDS = _int_env("ARXIV_PANDOC_TIMEOUT", 180)
 PANDOC_RSS_CAP_MB = _int_env("ARXIV_PANDOC_RSS_CAP_MB", 8192)
 _RSS_POLL_SECONDS = 1.0
@@ -143,8 +143,8 @@ _KILL_REAP_GRACE_SECONDS = 10
 # They describe the same root cause and fix, so the guidance is written once.
 _RUNAWAY_REMEDY = (
     "Move the style-only .sty out of the source directory (or comment its "
-    "\\usepackage line) and re-run. See SKILL.md 'Troubleshooting: Conversion "
-    "Hangs / Runaway Memory'."
+    "\\usepackage line) and re-run. See references/pandoc-runaway.md in the "
+    "arxiv-doc-builder skill."
 )
 
 

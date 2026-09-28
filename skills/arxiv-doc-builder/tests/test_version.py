@@ -8,22 +8,17 @@ rare edge. These tests pin that behavior and the CLI contract.
 import subprocess
 import sys
 import tomllib
-from pathlib import Path
 
 import pytest
 
-import arxiv_doc_builder
+from conftest import PACKAGE_DIR, SKILL_DIR
 from arxiv_doc_builder._version import (
     _DIST_NAME,
     _version_from_pyproject,
     read_version,
 )
 
-# Resolve the package dir via the installed package, not this test file —
-# tests live under tests/ while convert_paper.py and pyproject.toml sit at the
-# package and project root respectively.
-_PKG_DIR = Path(arxiv_doc_builder.__file__).parent
-_PYPROJECT = _PKG_DIR.parent / "pyproject.toml"
+_PYPROJECT = SKILL_DIR / "pyproject.toml"
 
 
 def _expected_version() -> str:
@@ -36,7 +31,7 @@ def test_dist_name_is_hyphenated():
     # differs from the underscored import name. A regression to
     # "arxiv_doc_builder" would silently miss installed metadata.
     assert _DIST_NAME == "arxiv-doc-builder"
-    assert _DIST_NAME != _PKG_DIR.name
+    assert _DIST_NAME != PACKAGE_DIR.name
 
 
 def test_read_version_matches_pyproject_ssot():
@@ -124,7 +119,7 @@ def test_cli_version_flag_emits_version():
     # `--version` must print and exit 0 without requiring the positional
     # arxiv_id (action="version" is eager).
     result = subprocess.run(
-        [sys.executable, str(_PKG_DIR / "convert_paper.py"), "--version"],
+        [sys.executable, str(PACKAGE_DIR / "convert_paper.py"), "--version"],
         capture_output=True,
         text=True,
     )
@@ -135,7 +130,7 @@ def test_cli_version_flag_emits_version():
 @pytest.mark.parametrize("flag", ["-V", "--version"])
 def test_cli_version_short_and_long(flag):
     result = subprocess.run(
-        [sys.executable, str(_PKG_DIR / "convert_paper.py"), flag],
+        [sys.executable, str(PACKAGE_DIR / "convert_paper.py"), flag],
         capture_output=True,
         text=True,
     )
