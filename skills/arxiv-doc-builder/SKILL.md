@@ -12,7 +12,7 @@ Automatically converts arXiv papers into structured Markdown documentation for i
 This skill automatically:
 
 1. **Fetches paper materials from arXiv**
-   - Attempts to download LaTeX source (preferred) and PDF (idempotent — skips if cached)
+   - Attempts to download LaTeX source (preferred) and PDF, usually reusing files already downloaded
    - Handles all HTTP requests, extraction, and directory setup
 
 2. **Converts LaTeX source to structured Markdown** (happy path)
@@ -60,12 +60,15 @@ uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
   from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
 
 The orchestrator:
-1. Calls `fetch_paper.py` to download available materials — source if available + PDF (idempotent — cached files are reused)
-2. Detects available format (LaTeX source or PDF)
-3. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
-4. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
+1. Looks the paper's metadata record up once and hands the result to the steps below. Two sources can supply that record — arXiv's own API, and DataCite, where arXiv registers a DOI for every paper. `references/output-format.md` states which is asked when, that the wait for them is bounded, and how the frontmatter's `metadata_status` records the outcome
+2. Calls `fetch_paper.py` to download available materials — source if available + PDF. Files already downloaded are usually reused
+3. Detects available format (LaTeX source or PDF)
+4. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
+5. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
 
-All HTTP requests (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
+The metadata lookup, downloads (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
+
+A hand edit under `source/`, such as a troubleshooting fix below, can be lost when a re-run downloads the source again. After editing the source and re-running, check it as `references/source-edits.md` describes.
 
 ### Source Detection
 
@@ -168,7 +171,7 @@ Main .tex selection is ambiguous. Re-run with --tex-file pointing at the correct
 If you originally passed --output-dir, include the same value in the re-run.
 ```
 
-To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file. The fetch step is idempotent, so the already-downloaded source is reused without touching the network:
+To resolve, re-run `convert-paper` with `--tex-file` pointing at the correct main file:
 
 ```bash
 convert-paper 1911.04882 --tex-file /path/to/1911.04882/source/main_paper.tex
@@ -184,7 +187,7 @@ When pandoc fails on a LaTeX source, the error may point to `\end{document}` wit
 
 1. **Binary search for the failing line.** Extract the body (`\begin{document}` to `\end{document}`), then test pandoc with increasing prefixes to find the first line that causes failure.
 2. **Check that line for brace mismatches.** The most common cause is an unbalanced `{` or `}` in the LaTeX source. LaTeX's TeX engine silently tolerates these, but pandoc's structured parser does not.
-3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. The fetch step is idempotent, so the cached source and PDF are reused without network access.
+3. **Fix only the mismatch and re-run `convert-paper`.** A single-character fix (e.g., removing an orphaned `{`) is usually sufficient. Then check that the fix survived, as `references/source-edits.md` describes.
 
 ### Example
 
@@ -224,7 +227,7 @@ TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument);
 
 ### Fix: strip the style-only `.sty` (safe, and provably output-neutral here)
 
-Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`, then re-run — the fetch step is idempotent, so the cached source is reused:
+Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`, then re-run. Then check that the change survived, as `references/source-edits.md` describes:
 
 ```bash
 mv source/arxiv.sty source/arxiv.sty.bak   # pandoc no longer reads it

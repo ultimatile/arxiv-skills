@@ -4,13 +4,13 @@ Counterpart to the LaTeX-path module, kept apart because building a fixture
 document here needs the optional PDF dependencies.
 
 Nothing reaches the network. Tests that supply an arXiv id replace the caller's
-``fetch_metadata``, and the rest ask arXiv nothing.
+``fetch_metadata`` or hand it a lookup, and the rest look nothing up.
 """
 
 from pathlib import Path
 
 import pytest
-from conftest import PROBE_ERROR, status_of
+from conftest import PROBE_ERROR, refuse_lookup, status_of
 from pypdf import PdfWriter
 
 from arxiv_doc_builder import pdf_converter_lib
@@ -18,6 +18,7 @@ from arxiv_doc_builder.arxiv_metadata import (
     METADATA_NOT_REQUESTED,
     METADATA_OK,
     METADATA_UNAVAILABLE,
+    write_metadata_handoff,
 )
 
 
@@ -90,3 +91,41 @@ def test_an_empty_arxiv_id_is_treated_as_no_id_at_all(capsys, pdf_inputs):
     assert status_of(out) == METADATA_NOT_REQUESTED
     assert "arxiv_id:\n" in out.read_text(encoding="utf-8")
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
+    ("probe_name", "status"),
+    [("probe_with_version", METADATA_OK), ("failed_probe", METADATA_UNAVAILABLE)],
+)
+def test_pdf_path_given_a_handoff_uses_it_without_looking_up(
+    monkeypatch, request, capsys, tmp_path, pdf_inputs, probe_name, status
+):
+    pdf, out = pdf_inputs
+    handoff = tmp_path / "handoff.json"
+    write_metadata_handoff(handoff, "2606.09995", request.getfixturevalue(probe_name))
+    monkeypatch.setattr(pdf_converter_lib, "fetch_metadata", refuse_lookup)
+
+    pdf_converter_lib.convert_pdf_to_markdown(
+        pdf, out, arxiv_id="2606.09995", metadata_handoff=handoff
+    )
+
+    assert status_of(out) == status
+    # A handed-over failure still reaches the user with its cause.
+    err = capsys.readouterr().err
+    assert (PROBE_ERROR in err) == (status == METADATA_UNAVAILABLE)
+
+
+@pytest.mark.parametrize("arxiv_id", [None, ""])
+def test_a_handoff_without_an_arxiv_id_is_rejected_before_any_output(
+    tmp_path, pdf_inputs, arxiv_id
+):
+    # A handoff describes one id's lookup, so a document with no id cannot use
+    # one, and the refusal comes before anything is written.
+    pdf, out = pdf_inputs
+
+    with pytest.raises(ValueError):
+        pdf_converter_lib.convert_pdf_to_markdown(
+            pdf, out, arxiv_id=arxiv_id, metadata_handoff=tmp_path / "handoff.json"
+        )
+
+    assert not out.exists()

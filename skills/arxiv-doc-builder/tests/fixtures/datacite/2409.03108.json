@@ -1,0 +1,116 @@
+{
+  "data": {
+    "id": "10.48550/arxiv.2409.03108",
+    "type": "dois",
+    "attributes": {
+      "doi": "10.48550/arxiv.2409.03108",
+      "titles": [
+        {
+          "title": "Loop Series Expansions for Tensor Networks"
+        }
+      ],
+      "creators": [
+        {
+          "name": "Evenbly, Glen",
+          "givenName": "Glen",
+          "familyName": "Evenbly",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Pancotti, Nicola",
+          "givenName": "Nicola",
+          "familyName": "Pancotti",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Milsted, Ashley",
+          "givenName": "Ashley",
+          "familyName": "Milsted",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Gray, Johnnie",
+          "givenName": "Johnnie",
+          "familyName": "Gray",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Chan, Garnet Kin-Lic",
+          "givenName": "Garnet Kin-Lic",
+          "familyName": "Chan",
+          "nameType": "Personal"
+        }
+      ],
+      "dates": [
+        {
+          "date": "2024-09-04T22:22:35Z",
+          "dateType": "Submitted",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2024-09-06T00:09:56Z",
+          "dateType": "Updated",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2025-03-26T20:08:06Z",
+          "dateType": "Submitted",
+          "dateInformation": "v2"
+        },
+        {
+          "date": "2026-03-09T00:15:09Z",
+          "dateType": "Updated",
+          "dateInformation": "v2"
+        },
+        {
+          "date": "2024-09",
+          "dateType": "Available",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2024",
+          "dateType": "Issued"
+        }
+      ],
+      "subjects": [
+        {
+          "lang": "en",
+          "subject": "Quantum Physics (quant-ph)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "lang": "en",
+          "subject": "Disordered Systems and Neural Networks (cond-mat.dis-nn)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "subject": "FOS: Physical sciences",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        },
+        {
+          "subject": "FOS: Physical sciences",
+          "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        }
+      ],
+      "relatedIdentifiers": [
+        {
+          "relationType": "IsVersionOf",
+          "relatedIdentifier": "10.1103/vqks-cr6x",
+          "relatedIdentifierType": "DOI"
+        }
+      ],
+      "descriptions": [
+        {
+          "description": "Belief propagation (BP) can be a useful tool to approximately contract a tensor network, provided that the contributions from any closed loops in the network are sufficiently weak. In this manuscript we describe how a loop series expansion can be applied to systematically improve the accuracy of a BP approximation to a tensor network contraction, in principle converging arbitrarily close to the exact result. More generally, our result provides a framework for expanding a tensor network as a sum of component networks in a hierarchy of increasing complexity. We benchmark this proposal for the contraction of iPEPS, either representing the ground state of an AKLT model or with randomly defined tensors, where it is shown to improve in accuracy over standard BP by several orders of magnitude whilst incurring only a minor increase in computational cost. These results indicate that the proposed series expansions could be a useful tool to accurately evaluate tensor networks in cases that otherwise exceed the limits of established contraction routines.",
+          "descriptionType": "Abstract"
+        },
+        {
+          "description": "Main text: 6 pages, 5 figures. Appendices: 8 pages, 7 figures. Revised version contains improved results and an additional appendix entry",
+          "descriptionType": "Other"
+        }
+      ],
+      "version": "2"
+    }
+  }
+}

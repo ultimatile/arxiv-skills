@@ -1,0 +1,191 @@
+{
+  "data": {
+    "id": "10.48550/arxiv.2203.02155",
+    "type": "dois",
+    "attributes": {
+      "doi": "10.48550/arxiv.2203.02155",
+      "titles": [
+        {
+          "title": "Training language models to follow instructions with human feedback"
+        }
+      ],
+      "creators": [
+        {
+          "name": "Ouyang, Long",
+          "givenName": "Long",
+          "familyName": "Ouyang",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Wu, Jeff",
+          "givenName": "Jeff",
+          "familyName": "Wu",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Jiang, Xu",
+          "givenName": "Xu",
+          "familyName": "Jiang",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Almeida, Diogo",
+          "givenName": "Diogo",
+          "familyName": "Almeida",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Wainwright, Carroll L.",
+          "givenName": "Carroll L.",
+          "familyName": "Wainwright",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Mishkin, Pamela",
+          "givenName": "Pamela",
+          "familyName": "Mishkin",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Zhang, Chong",
+          "givenName": "Chong",
+          "familyName": "Zhang",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Agarwal, Sandhini",
+          "givenName": "Sandhini",
+          "familyName": "Agarwal",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Slama, Katarina",
+          "givenName": "Katarina",
+          "familyName": "Slama",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Ray, Alex",
+          "givenName": "Alex",
+          "familyName": "Ray",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Schulman, John",
+          "givenName": "John",
+          "familyName": "Schulman",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Hilton, Jacob",
+          "givenName": "Jacob",
+          "familyName": "Hilton",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Kelton, Fraser",
+          "givenName": "Fraser",
+          "familyName": "Kelton",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Miller, Luke",
+          "givenName": "Luke",
+          "familyName": "Miller",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Simens, Maddie",
+          "givenName": "Maddie",
+          "familyName": "Simens",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Askell, Amanda",
+          "givenName": "Amanda",
+          "familyName": "Askell",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Welinder, Peter",
+          "givenName": "Peter",
+          "familyName": "Welinder",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Christiano, Paul",
+          "givenName": "Paul",
+          "familyName": "Christiano",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Leike, Jan",
+          "givenName": "Jan",
+          "familyName": "Leike",
+          "nameType": "Personal"
+        },
+        {
+          "name": "Lowe, Ryan",
+          "givenName": "Ryan",
+          "familyName": "Lowe",
+          "nameType": "Personal"
+        }
+      ],
+      "dates": [
+        {
+          "date": "2022-03-04T07:04:42Z",
+          "dateType": "Submitted",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2022-03-07T01:13:10Z",
+          "dateType": "Updated",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2022-03",
+          "dateType": "Available",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2022",
+          "dateType": "Issued"
+        }
+      ],
+      "subjects": [
+        {
+          "lang": "en",
+          "subject": "Computation and Language (cs.CL)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "lang": "en",
+          "subject": "Artificial Intelligence (cs.AI)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "lang": "en",
+          "subject": "Machine Learning (cs.LG)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "subject": "FOS: Computer and information sciences",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        },
+        {
+          "subject": "FOS: Computer and information sciences",
+          "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        }
+      ],
+      "relatedIdentifiers": [],
+      "descriptions": [
+        {
+          "description": "Making language models bigger does not inherently make them better at following a user's intent. For example, large language models can generate outputs that are untruthful, toxic, or simply not helpful to the user. In other words, these models are not aligned with their users. In this paper, we show an avenue for aligning language models with user intent on a wide range of tasks by fine-tuning with human feedback. Starting with a set of labeler-written prompts and prompts submitted through the OpenAI API, we collect a dataset of labeler demonstrations of the desired model behavior, which we use to fine-tune GPT-3 using supervised learning. We then collect a dataset of rankings of model outputs, which we use to further fine-tune this supervised model using reinforcement learning from human feedback. We call the resulting models InstructGPT. In human evaluations on our prompt distribution, outputs from the 1.3B parameter InstructGPT model are preferred to outputs from the 175B GPT-3, despite having 100x fewer parameters. Moreover, InstructGPT models show improvements in truthfulness and reductions in toxic output generation while having minimal performance regressions on public NLP datasets. Even though InstructGPT still makes simple mistakes, our results show that fine-tuning with human feedback is a promising direction for aligning language models with human intent.",
+          "descriptionType": "Abstract"
+        }
+      ],
+      "version": "1"
+    }
+  }
+}

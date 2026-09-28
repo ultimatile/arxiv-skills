@@ -1,0 +1,79 @@
+{
+  "data": {
+    "id": "10.48550/arxiv.0705.1442",
+    "type": "dois",
+    "attributes": {
+      "creators": [
+        {
+          "name": "Gharibyan, Karlen Garnik",
+          "nameType": "Personal",
+          "givenName": "Karlen Garnik",
+          "familyName": "Gharibyan",
+          "affiliation": [],
+          "nameIdentifiers": []
+        }
+      ],
+      "dates": [
+        {
+          "date": "2007-05-10T11:41:26Z",
+          "dateType": "Submitted",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2009-12-01T09:10:43Z",
+          "dateType": "Updated",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2007-06-30T03:41:18Z",
+          "dateType": "Withdrawn",
+          "dateInformation": "v2; None"
+        },
+        {
+          "date": "2013-05-07T00:03:54Z",
+          "dateType": "Updated",
+          "dateInformation": "v2"
+        },
+        {
+          "date": "2007-05",
+          "dateType": "Available",
+          "dateInformation": "v1"
+        },
+        {
+          "date": "2007",
+          "dateType": "Issued"
+        }
+      ],
+      "descriptions": [
+        {
+          "description": "This paper has been withdrawn Abstract: This paper has been withdrawn by the author due to the publication.",
+          "descriptionType": "Abstract"
+        }
+      ],
+      "doi": "10.48550/arxiv.0705.1442",
+      "relatedIdentifiers": [],
+      "subjects": [
+        {
+          "lang": "en",
+          "subject": "Computational Complexity (cs.CC)",
+          "subjectScheme": "arXiv"
+        },
+        {
+          "subject": "FOS: Computer and information sciences",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        },
+        {
+          "subject": "FOS: Computer and information sciences",
+          "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+          "subjectScheme": "Fields of Science and Technology (FOS)"
+        }
+      ],
+      "titles": [
+        {
+          "title": "Does P=NP?"
+        }
+      ],
+      "version": "2"
+    }
+  }
+}

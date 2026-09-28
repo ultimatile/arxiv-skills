@@ -8,6 +8,7 @@ Handles fetching and conversion automatically.
 import argparse
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Importable both as a package member (entry point) and as a bare script.
@@ -15,11 +16,13 @@ from pathlib import Path
 # *inside* arxiv_id.py isn't silently masked by the script-mode fallback.
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_doc_builder.arxiv_metadata import fetch_metadata, write_metadata_handoff
     from arxiv_doc_builder._version import read_version
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
+    from arxiv_metadata import fetch_metadata, write_metadata_handoff
     from _version import read_version
 
 
@@ -90,79 +93,93 @@ def main():
     print("=" * 60)
     print()
 
-    # Step 1: Fetch materials (idempotent — skips network when files exist)
-    print("Step 1: Fetching paper materials...")
-    print("-" * 60)
-    rc = run_script(
-        "fetch_paper.py", [args.arxiv_id, "--output-dir", str(args.output_dir)]
-    )
-    if rc != 0:
-        print("\n✗ Fetching failed")
-        sys.exit(1)
+    # One lookup serves every step, handed over in a file in a fresh per-run
+    # directory, so no step reads an earlier run's result.
+    print("Looking up the paper's metadata record...")
+    fetched = fetch_metadata(args.arxiv_id)
     print()
+    with tempfile.TemporaryDirectory(prefix="convert-paper-") as handoff_dir:
+        # Absolute, so the child's argparse cannot read it as an option.
+        handoff = Path(handoff_dir).resolve() / "metadata.json"
+        write_metadata_handoff(handoff, args.arxiv_id, fetched)
+        handoff_args = ["--metadata-handoff", str(handoff)]
 
-    # Step 2: Convert to Markdown
-    print("Step 2: Converting to Markdown...")
-    print("-" * 60)
-
-    # Decide LaTeX vs PDF path. An explicit --tex-file always forces the
-    # LaTeX path: the auto-detection here only globs the top level of
-    # source/, but some arXiv layouts put the real entrypoint in a
-    # subdirectory, and --tex-file is advertised as a direct override.
-    has_top_level_tex = source_dir.exists() and list(source_dir.glob("*.tex"))
-    if args.tex_file or has_top_level_tex:
-        if args.tex_file:
-            print(
-                f"Using explicit --tex-file {args.tex_file}, running LaTeX conversion..."
-            )
-        else:
-            print("LaTeX source detected, using LaTeX conversion...")
-        latex_args = [
-            args.arxiv_id,
-            "--source-dir",
-            str(source_dir),
-            "--output",
-            str(paper_dir / f"{normalized_arxiv_id}.md"),
-        ]
-        if args.tex_file:
-            latex_args += ["--tex-file", str(args.tex_file)]
-        rc = run_script("convert_latex.py", latex_args)
-        if rc != 0:
-            # Exit code 2 signals ambiguous main .tex — the child already
-            # printed a detailed stderr message with candidate paths and
-            # a re-run suggestion, so we just propagate the code.
-            if rc == 2:
-                sys.exit(2)
-            print("\n✗ LaTeX conversion failed")
-            sys.exit(1)
-    else:
-        print("No LaTeX source, falling back to naive PDF conversion...")
-        print("⚠ This uses single-column text extraction only.")
-        print("  Output quality varies — inspect the result and consider")
-        print("  using convert_pdf_double_column.py or convert_pdf_extract.py")
-        print("  if the output is garbled.")
-        # Check both possible PDF locations
-        pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
-        if not pdf_file.exists():
-            pdf_file = paper_dir / f"{normalized_arxiv_id}.pdf"
-        if not pdf_file.exists():
-            print(f"✗ PDF file not found in {paper_dir}")
-            sys.exit(1)
-
+        # Step 1: Fetch materials (reuses files already downloaded; fetch_paper
+        # says when it downloads them again)
+        print("Step 1: Fetching paper materials...")
+        print("-" * 60)
         rc = run_script(
-            "convert_pdf_simple.py",
-            [
-                str(pdf_file),
-                "-o",
-                str(paper_dir / f"{normalized_arxiv_id}.md"),
-                "--arxiv-id",
-                args.arxiv_id,
-            ],
-            use_uv=True,
+            "fetch_paper.py",
+            [args.arxiv_id, "--output-dir", str(args.output_dir)] + handoff_args,
         )
         if rc != 0:
-            print("\n✗ PDF conversion failed")
+            print("\n✗ Fetching failed")
             sys.exit(1)
+        print()
+
+        # Step 2: Convert to Markdown
+        print("Step 2: Converting to Markdown...")
+        print("-" * 60)
+
+        # Decide LaTeX vs PDF path. An explicit --tex-file always forces the
+        # LaTeX path: the auto-detection here only globs the top level of
+        # source/, but some arXiv layouts put the real entrypoint in a
+        # subdirectory, and --tex-file is advertised as a direct override.
+        has_top_level_tex = source_dir.exists() and list(source_dir.glob("*.tex"))
+        if args.tex_file or has_top_level_tex:
+            if args.tex_file:
+                print(
+                    f"Using explicit --tex-file {args.tex_file}, running LaTeX conversion..."
+                )
+            else:
+                print("LaTeX source detected, using LaTeX conversion...")
+            latex_args = [
+                args.arxiv_id,
+                "--source-dir",
+                str(source_dir),
+                "--output",
+                str(paper_dir / f"{normalized_arxiv_id}.md"),
+            ]
+            if args.tex_file:
+                latex_args += ["--tex-file", str(args.tex_file)]
+            rc = run_script("convert_latex.py", latex_args + handoff_args)
+            if rc != 0:
+                # Exit code 2 signals ambiguous main .tex — the child already
+                # printed a detailed stderr message with candidate paths and
+                # a re-run suggestion, so we just propagate the code.
+                if rc == 2:
+                    sys.exit(2)
+                print("\n✗ LaTeX conversion failed")
+                sys.exit(1)
+        else:
+            print("No LaTeX source, falling back to naive PDF conversion...")
+            print("⚠ This uses single-column text extraction only.")
+            print("  Output quality varies — inspect the result and consider")
+            print("  using convert_pdf_double_column.py or convert_pdf_extract.py")
+            print("  if the output is garbled.")
+            # Check both possible PDF locations
+            pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
+            if not pdf_file.exists():
+                pdf_file = paper_dir / f"{normalized_arxiv_id}.pdf"
+            if not pdf_file.exists():
+                print(f"✗ PDF file not found in {paper_dir}")
+                sys.exit(1)
+
+            rc = run_script(
+                "convert_pdf_simple.py",
+                [
+                    str(pdf_file),
+                    "-o",
+                    str(paper_dir / f"{normalized_arxiv_id}.md"),
+                    "--arxiv-id",
+                    args.arxiv_id,
+                ]
+                + handoff_args,
+                use_uv=True,
+            )
+            if rc != 0:
+                print("\n✗ PDF conversion failed")
+                sys.exit(1)
 
     print()
     print("=" * 60)
