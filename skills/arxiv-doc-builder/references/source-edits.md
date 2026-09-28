@@ -15,5 +15,5 @@ The fetch step's output tells you what happened to the edit:
   available`.** The source was deleted and not replaced. Re-run once with the same arguments. If the
   summary then lists `✓ LaTeX source available`, apply the edit again and re-run. If it still does
   not, stop re-running: the source cannot be downloaded now. When the summary lists
-  `✓ PDF available`, the paper can still be converted from the PDF, as SKILL.md's PDF Conversion
-  Scripts section describes.
+  `✓ PDF available`, the paper can still be converted from the PDF, as
+  `references/pdf-conversion.md` describes.
