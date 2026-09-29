@@ -1,90 +1,30 @@
 ---
 name: arxiv-doc-builder
-description: Convert arXiv papers to Markdown documentation. Fetches available materials from arXiv (LaTeX source when available + PDF), converts LaTeX to Markdown via pandoc (happy path). PDF-only papers get a naive single-column fallback.
+description: Convert an arXiv paper to Markdown for reading or implementation reference. Use when asked to convert, fetch, or create documentation for an arXiv paper by its ID, or when a paper with a known arXiv ID needs to be read or referenced. Fetches the LaTeX source when available (plus the PDF) and converts it with pandoc; PDF-only papers get a naive single-column fallback.
 ---
 
 # arXiv Document Builder
 
-Automatically converts arXiv papers into structured Markdown documentation for implementation reference.
+## Procedure
 
-## Capabilities
+1. Run the converter:
 
-This skill automatically:
+   ```bash
+   # Using global command (recommended)
+   convert-paper ARXIV_ID [--output-dir DIR]
 
-1. **Fetches paper materials from arXiv**
-   - Attempts to download LaTeX source (preferred) and PDF, usually reusing files already downloaded
-   - Handles all HTTP requests, extraction, and directory setup
+   # Using script directly
+   uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
+   ```
 
-2. **Converts LaTeX source to structured Markdown** (happy path)
-   - LaTeX source → Markdown via pandoc (preserves all math and structure)
-   - Preserves mathematical formulas in MathJax/LaTeX format (`$...$`, `$$...$$`)
-   - Maintains section hierarchy and document structure
-   - Includes abstracts, figures, and references
+   - `--output-dir`: Directory where `{ARXIV_ID}/{ARXIV_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
+   - Use absolute paths to control output location precisely.
 
-3. **PDF fallback** (naive — output quality must be verified)
-   - When no LaTeX source is available, `convert-paper` runs `convert_pdf_simple.py` (single-column pdfplumber extraction) as a best-effort fallback
-   - This produces usable output only for simple, single-column papers
+   `convert-paper` does the metadata lookup, downloads, extraction, and directory creation itself; do not run curl, tar, or mkdir for them.
 
-4. **Generates implementation-ready documentation**
-   - Output saved to `{ARXIV_ID}/{ARXIV_ID}.md` under the output directory (default: current working directory)
-   - Easy to reference during code implementation
-   - Optimized for Claude to read and understand
+2. Before reading the output, go through "When Conversion Fails or Falls Back to PDF" below; it decides whether the run needs more work.
 
-## When to Use This Skill
-
-Invoke this skill when the user requests:
-- "Convert arXiv paper {ID} to markdown"
-- "Fetch and process paper {ID}"
-- "Create documentation for arXiv:{ID}"
-- "I need to read/reference paper {ID}"
-
-## How It Works
-
-### Single Entry Point
-
-Use the main orchestrator script or the globally installed `convert-paper` command:
-
-```bash
-# Using global command (recommended)
-convert-paper ARXIV_ID [--output-dir DIR]
-
-# Using script directly
-uv run arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
-```
-
-- `--output-dir`: Directory where `{ARXIV_ID}/{ARXIV_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
-- Use absolute paths to control output location precisely.
-- `-V` / `--version`: Print the version and exit. Resolves from installed
-  distribution metadata, falling back to `pyproject.toml` when run straight
-  from the source tree (the uninstalled case for `uv run …/convert_paper.py`).
-
-The orchestrator:
-1. Looks the paper's metadata record up once and hands the result to the steps below. Two sources can supply that record — arXiv's own API, and DataCite, where arXiv registers a DOI for every paper. `references/output-format.md` states which is asked when, that the wait for them is bounded, and how the frontmatter's `metadata_status` records the outcome
-2. Calls `fetch_paper.py` to download available materials — source if available + PDF. Files already downloaded are usually reused
-3. Detects available format (LaTeX source or PDF)
-4. Calls the appropriate converter (`convert_latex.py` or `convert_pdf_simple.py`)
-5. Outputs structured Markdown to `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`
-
-The metadata lookup, downloads (curl), file extraction (tar), and directory creation (mkdir) are handled automatically.
-
-### Source Detection
-
-- **LaTeX source available**: Converts with pandoc — this is the reliable path
-- **PDF only**: Falls back to naive single-column text extraction
-
-## Output Structure
-
-Generated Markdown includes:
-- A YAML frontmatter block with provenance metadata, whose schema
-  `arxiv_doc_builder/arxiv_metadata.py` defines and
-  `references/output-format.md` documents
-- Full paper content with section hierarchy
-- Inline math: `$f(x) = x^2$`
-- Display math: `$$\int_0^\infty e^{-x} dx = 1$$`
-- Preserved LaTeX commands for complex formulas
-- References section
-
-Output location: `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md` (default output-dir is current working directory)
+3. When that section leaves nothing more to do, read `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`. It opens with a YAML frontmatter block of provenance metadata; `references/output-format.md` documents its fields, including what `metadata_status` records.
 
 ## When Conversion Fails or Falls Back to PDF
 
@@ -100,9 +40,7 @@ Whichever file you follow, change the source only as it directs. Do NOT attempt 
 - It prints `Pandoc did not finish within` or `Pandoc exceeded the <N> MB memory watchdog`, or a pandoc run has not returned → `references/pandoc-runaway.md`
 - It prints `No LaTeX source, falling back to naive PDF conversion...` → `references/pdf-conversion.md`
 
-## Directory Structure
-
-Output is created under `--output-dir` (default: current working directory):
+## Output Layout
 
 ```
 {output-dir}/
