@@ -7,9 +7,10 @@ agent with the condition and no procedure. The test scans SKILL.md, every
 and messages alike), and the evaluated remedy `convert_latex.py` prints when
 it kills a runaway pandoc.
 
-The same holds for the package scripts the agent is told to run: every one a
-command in SKILL.md or references/ names exists, under a path the agent can
-run from its own working directory.
+The same holds for the package scripts the agent is told to run. When a
+command in SKILL.md or references/ names a script, that script exists, and
+the command names it by a path the agent can run from its own working
+directory.
 """
 
 import re
