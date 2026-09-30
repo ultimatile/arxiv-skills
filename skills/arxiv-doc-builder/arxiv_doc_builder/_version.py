@@ -6,12 +6,12 @@ via ``importlib.metadata.version``. That is the only source needed for an
 installed CLI.
 
 A fallback to parsing ``pyproject.toml`` directly *is* warranted here, unlike
-the usual uv-tool-install workflow. This skill is run straight from the
-checkout — ``uv run arxiv_doc_builder/convert_paper.py`` and the
-``uv run --no-project`` / bare-interpreter calls in ``convert_paper.run_script``
-never install the package, so no ``.dist-info`` exists and
-``importlib.metadata.version`` raises ``PackageNotFoundError``. The fallback is
-what makes ``--version`` report the real number in that mode instead of crashing.
+the usual uv-tool-install workflow. This skill's scripts sit in the checkout,
+and ``convert_paper.py`` can be run from there by an interpreter the package
+was never installed into — ``uv run --no-project``, or a bare ``python`` —
+where no ``.dist-info`` exists and ``importlib.metadata.version`` raises
+``PackageNotFoundError``. The fallback is what makes ``--version`` report the
+real number in that mode instead of crashing.
 
 Note the distribution name passed to ``metadata.version`` is the hyphenated
 ``arxiv-doc-builder`` (``pyproject``'s ``[project] name``), not the underscored
