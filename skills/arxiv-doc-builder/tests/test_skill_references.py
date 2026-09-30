@@ -18,7 +18,7 @@ import re
 import pytest
 
 from arxiv_doc_builder import convert_latex
-from conftest import PACKAGE_DIR, SKILL_DIR
+from conftest import PACKAGE_DIR, SKILL_DIR, read_skill_md
 
 _REFERENCE = re.compile(r"references/[\w.-]+\.md")
 
@@ -36,7 +36,7 @@ _CONDITIONAL_REFERENCES = {
 
 
 def _markdown_sources() -> list[tuple[str, str]]:
-    sources = [("SKILL.md", (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))]
+    sources = [("SKILL.md", read_skill_md())]
     reference_files = sorted((SKILL_DIR / "references").glob("*.md"))
     assert reference_files, "no reference files found"
     sources += [
@@ -68,7 +68,7 @@ def test_every_reference_path_exists(name: str, text: str) -> None:
 
 
 def test_skill_md_points_at_every_conditional_procedure() -> None:
-    skill_md = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill_md = read_skill_md()
     assert _CONDITIONAL_REFERENCES <= set(_REFERENCE.findall(skill_md))
 
 
