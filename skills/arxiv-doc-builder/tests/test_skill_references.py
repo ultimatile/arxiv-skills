@@ -94,20 +94,25 @@ _QUOTED_PREFIX = '"SKILL_DIR/'
 _FILES_WITH_SCRIPT_COMMANDS = {"SKILL.md", "references/pdf-conversion.md"}
 
 
+def _fenced_lines(text: str) -> list[str]:
+    """The lines inside fenced code blocks, fences excluded."""
+    lines = []
+    inside = False
+    for line in text.splitlines():
+        if _FENCE.match(line):
+            inside = not inside
+        elif inside:
+            lines.append(line)
+    return lines
+
+
 def _script_commands(text: str) -> list[tuple[str, str, str]]:
     """Each script a fenced line names, as (prefix, name, closing quote).
 
     The prefix is the non-space text right before ``arxiv_doc_builder/``; the
     closing quote is ``'"'`` when one follows the name, else ``""``.
     """
-    commands = []
-    inside = False
-    for line in text.splitlines():
-        if _FENCE.match(line):
-            inside = not inside
-        elif inside:
-            commands += [m.groups() for m in _SCRIPT_PATH.finditer(line)]
-    return commands
+    return [c for line in _fenced_lines(text) for c in _SCRIPT_PATH.findall(line)]
 
 
 def test_script_commands_scan_fenced_lines_only() -> None:
@@ -146,3 +151,30 @@ def test_script_commands_start_at_skill_dir(name: str, text: str) -> None:
 def test_script_commands_are_found() -> None:
     carrying = {name for name, text in _MARKDOWN if _script_commands(text)}
     assert _FILES_WITH_SCRIPT_COMMANDS <= carrying
+
+
+# A script with a PEP 723 header gets an environment built from that header.
+# One without it runs in whatever project uv picks, which older uv releases
+# take from the working directory; there the skill's `requires-python` and
+# dependencies are not guaranteed. Such a script's command therefore names
+# the skill's own project.
+_PEP_723_HEADER = "# /// script"
+_SKILL_PROJECT = '--project "SKILL_DIR"'
+
+
+def _has_inline_metadata(script: str) -> bool:
+    return _PEP_723_HEADER in (PACKAGE_DIR / script).read_text(encoding="utf-8")
+
+
+def test_scripts_without_inline_metadata_run_in_the_skill_project() -> None:
+    headerless = [
+        (name, line.strip())
+        for name, text in _MARKDOWN
+        for line in _fenced_lines(text)
+        for _, script, _ in _SCRIPT_PATH.findall(line)
+        if not _has_inline_metadata(script)
+    ]
+    # convert_paper.py is such a script, so the check has something to cover.
+    assert headerless, "no command runs a script without a PEP 723 header"
+    lacking = [(name, line) for name, line in headerless if _SKILL_PROJECT not in line]
+    assert not lacking, f"commands without {_SKILL_PROJECT}: {lacking}"
