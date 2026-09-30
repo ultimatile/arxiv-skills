@@ -22,9 +22,7 @@ description: Convert an arXiv paper to Markdown for reading or implementation re
 
    `convert-paper` does the metadata lookup, downloads, extraction, and directory creation itself; do not run curl, tar, or mkdir for them.
 
-2. Before reading the output, go through "When Conversion Fails or Falls Back to PDF" below; it decides whether the run needs more work.
-
-3. When that section leaves nothing more to do, read `{output-dir}/{ARXIV_ID}/{ARXIV_ID}.md`. It opens with a YAML frontmatter block of provenance metadata; `references/output-format.md` documents its fields, including what `metadata_status` records.
+2. On success, `convert-paper` prints the Markdown file's path on its `Output:` line. The file opens with a YAML frontmatter block of provenance metadata; `references/output-format.md` documents its fields, including what `metadata_status` records.
 
 ## When Conversion Fails or Falls Back to PDF
 
