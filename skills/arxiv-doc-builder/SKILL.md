@@ -18,7 +18,8 @@ description: Convert an arXiv paper to Markdown for reading or implementation re
    ```
 
    - `SKILL_DIR`: replace with the absolute path of the directory this SKILL.md is in. It is a placeholder, not a shell variable. Keep the double quotes around it, so a path containing spaces stays one argument. The command then runs from any working directory.
-   - `--output-dir`: Directory where `{ARXIV_ID}/{ARXIV_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
+   - `--output-dir`: Directory where `{SAFE_ID}/{SAFE_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
+     `{SAFE_ID}`, here and below, is `ARXIV_ID` with `/` replaced by `_`, as in `hep-th/9711200` → `hep-th_9711200`. A new-style ID contains no `/`, so it is used unchanged.
    - Use absolute paths to control output location precisely.
 
    `convert-paper` does the metadata lookup, downloads, extraction, and directory creation itself; do not run curl, tar, or mkdir for them.
@@ -27,7 +28,7 @@ description: Convert an arXiv paper to Markdown for reading or implementation re
 
 ## When Conversion Fails or Falls Back to PDF
 
-If you edited a file under `{ARXIV_ID}/source/` and re-ran `convert-paper`, read `references/source-edits.md` first and follow it before any line below.
+If you edited a file under `{SAFE_ID}/source/` and re-ran `convert-paper`, read `references/source-edits.md` first and follow it before any line below.
 
 When you made no such edit, or once that file no longer tells you to edit again or re-run, read the file that the line matching the output points to. For an output not listed here, act on what the output itself says.
 
@@ -43,9 +44,9 @@ Whichever file you follow, change the source only as it directs. Do NOT attempt 
 
 ```
 {output-dir}/
-└── {ARXIV_ID}/
+└── {SAFE_ID}/
     ├── source/           # LaTeX source files (if available)
     ├── pdf/              # PDF file
-    ├── {ARXIV_ID}.md     # Generated Markdown output
+    ├── {SAFE_ID}.md      # Generated Markdown output
     └── figures/          # Extracted figures (if any)
 ```

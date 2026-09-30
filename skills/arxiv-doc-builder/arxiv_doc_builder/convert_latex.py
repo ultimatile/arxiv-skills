@@ -406,12 +406,13 @@ def main():
     parser.add_argument(
         "--source-dir",
         type=Path,
-        help="LaTeX source directory (default: papers/ARXIV_ID/source)",
+        help="LaTeX source directory (default: papers/SAFE_ID/source, "
+        "SAFE_ID being arxiv_id with '/' replaced by '_')",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output Markdown file (default: papers/ARXIV_ID/ARXIV_ID.md)",
+        help="Output Markdown file (default: papers/SAFE_ID/SAFE_ID.md)",
     )
     parser.add_argument(
         "--tex-file",

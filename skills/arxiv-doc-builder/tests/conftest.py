@@ -24,6 +24,11 @@ from arxiv_doc_builder.arxiv_metadata import (
 PACKAGE_DIR = Path(arxiv_doc_builder.__file__).parent
 SKILL_DIR = PACKAGE_DIR.parent
 
+
+def read_skill_md() -> str:
+    return (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+
+
 PROBE_ERROR = "OSError: connection reset"
 PROBE_VERSION = "2409.03108v2"
 
