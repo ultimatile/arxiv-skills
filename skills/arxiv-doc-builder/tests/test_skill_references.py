@@ -80,19 +80,26 @@ def test_runaway_remedy_names_a_reference_file() -> None:
 
 # A command the agent runs names a package script by a path starting at the
 # skill root. The agent runs it from its own working directory, where that path
-# resolves only if the literal placeholder `SKILL_DIR/` (which SKILL.md tells
-# the agent to replace with the skill root's absolute path) comes right before
-# it. Prose outside fenced blocks may name a module without being a command.
+# resolves only if it starts with the literal placeholder `SKILL_DIR/`, which
+# SKILL.md tells the agent to replace with the skill root's absolute path. The
+# whole path sits in double quotes, so a skill root containing spaces stays one
+# argument. Prose outside fenced blocks may name a module without being a
+# command.
 _FENCE = re.compile(r"^\s*```")
-_SCRIPT_PATH = re.compile(r"(\S*?)arxiv_doc_builder/([\w.-]+\.py)")
+_SCRIPT_PATH = re.compile(r'(\S*?)arxiv_doc_builder/([\w.-]+\.py)("?)')
+_QUOTED_PREFIX = '"SKILL_DIR/'
 
 # The files that carry such commands; without them the check below could pass
 # on nothing, for instance if an indented fence stopped being recognized.
 _FILES_WITH_SCRIPT_COMMANDS = {"SKILL.md", "references/pdf-conversion.md"}
 
 
-def _script_commands(text: str) -> list[tuple[str, str]]:
-    """Each script a fenced line names, as (what precedes it, script name)."""
+def _script_commands(text: str) -> list[tuple[str, str, str]]:
+    """Each script a fenced line names, as (prefix, name, closing quote).
+
+    The prefix is the non-space text right before ``arxiv_doc_builder/``; the
+    closing quote is ``'"'`` when one follows the name, else ``""``.
+    """
     commands = []
     inside = False
     for line in text.splitlines():
@@ -108,11 +115,14 @@ def test_script_commands_scan_fenced_lines_only() -> None:
         "See `arxiv_doc_builder/prose.py`.\n"
         "   ```bash\n"
         "   uv run arxiv_doc_builder/bare.py x\n"
-        "   uv run --project SKILL_DIR SKILL_DIR/arxiv_doc_builder/prefixed.py\n"
+        '   uv run --project "SKILL_DIR" "SKILL_DIR/arxiv_doc_builder/quoted.py" x\n'
         "   ```\n"
         "arxiv_doc_builder/after.py\n"
     )
-    assert _script_commands(text) == [("", "bare.py"), ("SKILL_DIR/", "prefixed.py")]
+    assert _script_commands(text) == [
+        ("", "bare.py", ""),
+        (_QUOTED_PREFIX, "quoted.py", '"'),
+    ]
 
 
 _MARKDOWN = _markdown_sources()
@@ -123,9 +133,13 @@ _MARKDOWN = _markdown_sources()
 )
 def test_script_commands_start_at_skill_dir(name: str, text: str) -> None:
     commands = _script_commands(text)
-    unprefixed = [script for prefix, script in commands if prefix != "SKILL_DIR/"]
-    assert not unprefixed, f"{name} runs scripts without SKILL_DIR/: {unprefixed}"
-    missing = [script for _, script in commands if not (PACKAGE_DIR / script).is_file()]
+    unquoted = [
+        script
+        for prefix, script, closing in commands
+        if prefix != _QUOTED_PREFIX or closing != '"'
+    ]
+    assert not unquoted, f'{name} runs scripts not written "SKILL_DIR/...": {unquoted}'
+    missing = [s for _, s, _ in commands if not (PACKAGE_DIR / s).is_file()]
     assert not missing, f"{name} runs scripts that do not exist: {missing}"
 
 

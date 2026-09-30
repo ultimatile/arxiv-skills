@@ -14,10 +14,10 @@ description: Convert an arXiv paper to Markdown for reading or implementation re
    convert-paper ARXIV_ID [--output-dir DIR]
 
    # Using script directly
-   uv run --project SKILL_DIR SKILL_DIR/arxiv_doc_builder/convert_paper.py ARXIV_ID [--output-dir DIR]
+   uv run --project "SKILL_DIR" "SKILL_DIR/arxiv_doc_builder/convert_paper.py" ARXIV_ID [--output-dir DIR]
    ```
 
-   - `SKILL_DIR`: replace with the absolute path of the directory this SKILL.md is in. It is a placeholder, not a shell variable. The command then runs from any working directory.
+   - `SKILL_DIR`: replace with the absolute path of the directory this SKILL.md is in. It is a placeholder, not a shell variable. Keep the double quotes around it, so a path containing spaces stays one argument. The command then runs from any working directory.
    - `--output-dir`: Directory where `{ARXIV_ID}/{ARXIV_ID}.md` will be created. **Default: current working directory** (not a `papers/` subdirectory).
    - Use absolute paths to control output location precisely.
 
