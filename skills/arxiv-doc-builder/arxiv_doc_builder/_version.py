@@ -7,9 +7,8 @@ installed CLI.
 
 A fallback to parsing ``pyproject.toml`` directly *is* warranted here, unlike
 the usual uv-tool-install workflow. This skill is run straight from the
-checkout — ``uv run arxiv_doc_builder/convert_paper.py`` and the
-``uv run --no-project`` / bare-interpreter calls in ``convert_paper.run_script``
-never install the package, so no ``.dist-info`` exists and
+checkout — the ``uv run --no-project`` / bare-interpreter calls in
+``convert_paper.run_script`` never install the package, so no ``.dist-info`` exists and
 ``importlib.metadata.version`` raises ``PackageNotFoundError``. The fallback is
 what makes ``--version`` report the real number in that mode instead of crashing.
 
