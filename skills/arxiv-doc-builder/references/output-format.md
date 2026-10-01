@@ -242,25 +242,25 @@ The method \cite{smith2023} shows promising results.
 
 ## File Organization
 
+`convert-paper` writes everything for one paper into one directory. In the tree
+below, `{output-dir}` is the `--output-dir` value and `{SAFE_ID}` is the name of
+the paper's directory, both as SKILL.md's Procedure step 1 describes them.
+
 ```
-papers/
-└── 2409.03108/
-    ├── 2409.03108.md                # Main document (frontmatter + paper content)
-    ├── .arxiv-fetch.json            # Fetch-side version record (drift detection)
-    ├── figures/
-    │   ├── fig1.png
-    │   ├── fig2.png
-    │   └── ...
-    ├── images/                      # PDF to image conversion (if used)
-    │   ├── page_001_full.png
-    │   ├── page_001_col1.png
-    │   └── ...
-    ├── source/                      # Original LaTeX (if available)
-    │   ├── main.tex
+{output-dir}/
+└── {SAFE_ID}/
+    ├── {SAFE_ID}.md         # Main document (frontmatter + paper content)
+    ├── .arxiv-fetch.json    # Fetch-side version record (drift detection)
+    ├── figures/             # Written by the LaTeX conversion only
+    │   └── ...              # Copies of the image files at the top level of source/
+    ├── source/              # Original LaTeX, when its download succeeded
     │   └── ...
     └── pdf/
-        └── 2409.03108.pdf           # Original PDF
+        └── {SAFE_ID}.pdf    # Original PDF, when its download succeeded
 ```
+
+The LaTeX conversion creates `figures/` even when `source/` has no image file
+to copy into it, and the PDF fallback does not create it.
 
 The provenance metadata lives in the document's YAML frontmatter (see above).
 `.arxiv-fetch.json` is an internal sidecar used only for version-drift
