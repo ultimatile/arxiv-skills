@@ -24,7 +24,7 @@ description: Convert an arXiv paper to Markdown for reading or implementation re
 
    `convert-paper` does the metadata lookup, downloads, extraction, and directory creation itself; do not run curl, tar, or mkdir for them.
 
-2. On success, `convert-paper` prints the Markdown file's path on its `Output:` line. The file opens with a YAML frontmatter block of provenance metadata; `references/output-format.md` documents its fields, including what `metadata_status` records.
+2. On success, `convert-paper` prints the Markdown file's path on its `Output:` line. The file opens with a YAML frontmatter block of provenance metadata; `references/output-format.md` documents its fields, including what `metadata_status` records. The File Organization section of `references/output-format.md` shows the layout of the paper's directory, `{SAFE_ID}/`.
 
 ## When Conversion Fails or Falls Back to PDF
 
@@ -39,14 +39,3 @@ Whichever file you follow, change the source only as it directs. Do NOT attempt 
 - It prints `Pandoc conversion failed:`, and the pandoc message after it contains neither → `references/pandoc-failures.md`
 - It prints `Pandoc did not finish within` or `Pandoc exceeded the <N> MB memory watchdog`, or a pandoc run has not returned → `references/pandoc-runaway.md`
 - It prints `No LaTeX source, falling back to naive PDF conversion...` → `references/pdf-conversion.md`
-
-## Output Layout
-
-```
-{output-dir}/
-└── {SAFE_ID}/
-    ├── source/           # LaTeX source files (if available)
-    ├── pdf/              # PDF file
-    ├── {SAFE_ID}.md      # Generated Markdown output
-    └── figures/          # Extracted figures (if any)
-```
