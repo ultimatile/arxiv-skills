@@ -252,7 +252,7 @@ paper's directory, both as SKILL.md's Procedure step 1 describes them.
     ├── {SAFE_ID}.md         # Main document (frontmatter + paper content)
     ├── .arxiv-fetch.json    # Fetch-side version record (drift detection)
     ├── figures/
-    │   └── ...              # Copies of the .png, .jpg, .jpeg, .pdf and .eps files at the top level of source/
+    │   └── ...              # A LaTeX conversion copies the .png, .jpg, .jpeg, .pdf and .eps files at the top level of source/ here
     ├── source/              # The paper's source as unpacked from arXiv; a PDF-only paper has none
     │   └── ...
     └── pdf/
@@ -260,7 +260,9 @@ paper's directory, both as SKILL.md's Procedure step 1 describes them.
 ```
 
 The LaTeX conversion creates `figures/` even when it finds no file to copy
-there, and the PDF fallback does not create it.
+there, and the PDF fallback does not create it. No conversion deletes a file
+from `figures/`, so a file an earlier run copied stays until a later run
+overwrites it.
 
 The provenance metadata lives in the document's YAML frontmatter (see above).
 `.arxiv-fetch.json` is an internal sidecar used only for version-drift
