@@ -1,21 +1,26 @@
-"""Shared test fixtures: metadata-lookup outcomes and a network guard.
+"""Shared test fixtures: metadata-lookup outcomes, a network guard, and a
+``convert_paper.main()`` launcher.
 
 `test_arxiv_metadata.py` builds its own outcomes, because it tests how
 `MetadataFetch` is constructed.
 """
 
 import os
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import arxiv_doc_builder
+from arxiv_doc_builder import convert_paper
 from arxiv_doc_builder.arxiv_metadata import (
     METADATA_OK,
     METADATA_SOURCE_ARXIV,
     METADATA_UNAVAILABLE,
     ArxivMetadata,
     MetadataFetch,
+    read_metadata_handoff,
 )
 
 # Resolved via the installed package, not a test file: tests live under tests/
@@ -179,3 +184,54 @@ def seed_cached_source(paper_dir: Path) -> None:
 def refuse_lookup(_arxiv_id: str) -> MetadataFetch:
     """A ``fetch_metadata`` stand-in for steps that must not look anything up."""
     raise AssertionError("a step given a metadata handoff looked the record up")
+
+
+# The paper the ``launch`` fixture converts, and the lookup it answers with.
+LAUNCH_ARXIV_ID = "2409.03108"
+LAUNCH_LOOKUP = MetadataFetch(
+    METADATA_OK,
+    metadata=ArxivMetadata(
+        title="Handed Over", version="2409.03108v2", source=METADATA_SOURCE_ARXIV
+    ),
+)
+
+
+@pytest.fixture
+def launch(monkeypatch, tmp_path):
+    """Run ``convert_paper.main()`` recording the lookups made and the children started.
+
+    Each recorded child carries its script name, its handoff path, and what the
+    handoff held when the child started (``None`` when no file was there).
+    ``exit_codes`` maps a script name to the code its child returns.
+    """
+    state = SimpleNamespace(lookups=[], children=[], output_dir=tmp_path)
+
+    def fake_fetch(arxiv_id):
+        state.lookups.append(arxiv_id)
+        return LAUNCH_LOOKUP
+
+    def run(arxiv_id=LAUNCH_ARXIV_ID, *, exit_codes=None):
+        codes = exit_codes or {}
+
+        def fake_run_script(script_name, args, use_uv=False):
+            handoff = Path(args[args.index("--metadata-handoff") + 1])
+            state.children.append(
+                SimpleNamespace(
+                    script=script_name,
+                    handoff=handoff,
+                    read=read_metadata_handoff(handoff, LAUNCH_ARXIV_ID)
+                    if handoff.is_file()
+                    else None,
+                )
+            )
+            return codes.get(script_name, 0)
+
+        monkeypatch.setattr(convert_paper, "fetch_metadata", fake_fetch)
+        monkeypatch.setattr(convert_paper, "run_script", fake_run_script)
+        monkeypatch.setattr(
+            sys, "argv", ["convert_paper.py", arxiv_id, "--output-dir", str(tmp_path)]
+        )
+        convert_paper.main()
+
+    state.run = run
+    return state
