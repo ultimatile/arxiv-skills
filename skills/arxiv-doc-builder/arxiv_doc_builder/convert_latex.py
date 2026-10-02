@@ -30,7 +30,7 @@ try:
         resolve_metadata,
     )
     from arxiv_doc_builder.figures_dir import (
-        check_figures_dir,
+        exit_if_symlink,
         figures_dir_in,
         remove_figures_dir,
     )
@@ -46,7 +46,7 @@ except ModuleNotFoundError as _exc:
         format_unavailable_warning,
         resolve_metadata,
     )
-    from figures_dir import check_figures_dir, figures_dir_in, remove_figures_dir
+    from figures_dir import exit_if_symlink, figures_dir_in, remove_figures_dir
 
 
 class AmbiguousMainTexError(Exception):
@@ -379,14 +379,10 @@ def post_process_markdown(
 
 
 def copy_figures(source_dir: Path, output_dir: Path):
-    """Replace the output directory's ``figures/`` with the source's figures.
+    """Copy figure files to output directory.
 
-    The directory is removed with everything in it and created again, so it
-    holds only what this run copies. A file an earlier revision of the paper
-    left there, or one placed there by hand, does not survive.
-
-    The removal is ``remove_figures_dir``'s, with ``source_dir`` as the input
-    it must not overlap, and raises as that function does.
+    Nothing already in ``figures/`` is removed here. ``main`` removes the
+    directory first when run with ``--replace-figures``.
 
     Only top-level figures are copied. Recursing is tempting but unsafe:
     the markdown post-processor rewrites all image references to
@@ -397,8 +393,7 @@ def copy_figures(source_dir: Path, output_dir: Path):
     rewriter, which is out of scope here.
     """
     figures_dir = figures_dir_in(output_dir)
-    remove_figures_dir(figures_dir, [source_dir])
-    figures_dir.mkdir()
+    figures_dir.mkdir(exist_ok=True)
 
     # Common image extensions
     image_exts = [".png", ".jpg", ".jpeg", ".pdf", ".eps"]
@@ -426,13 +421,19 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output Markdown file (default: papers/SAFE_ID/SAFE_ID.md). "
-        "The figures/ directory beside it is replaced.",
+        help="Output Markdown file (default: papers/SAFE_ID/SAFE_ID.md)",
     )
     parser.add_argument(
         "--tex-file",
         type=Path,
         help="Specify the main .tex file directly (overrides auto-detection)",
+    )
+    parser.add_argument(
+        "--replace-figures",
+        action="store_true",
+        help="Remove the figures/ directory beside the output file, with "
+        "everything in it, before copying the figures. Without this option "
+        "nothing already there is removed. convert-paper passes it.",
     )
     add_metadata_handoff_option(parser)
 
@@ -466,19 +467,6 @@ def main():
     # Check source directory exists
     if not source_dir.exists():
         print(f"Error: Source directory not found: {source_dir}")
-        sys.exit(1)
-
-    # copy_figures replaces figures/, so it must not overlap what is converted.
-    # An auto-detected main .tex sits in source_dir; an explicit one may not,
-    # and pandoc reads the files beside it.
-    figures_dir = figures_dir_in(output_md.parent)
-    input_dirs = [source_dir]
-    if args.tex_file:
-        input_dirs.append(args.tex_file.parent)
-    try:
-        check_figures_dir(figures_dir, input_dirs)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Find main .tex file
@@ -529,6 +517,12 @@ def main():
         print("Error: pandoc not found. Install with: brew install pandoc")
         sys.exit(1)
 
+    # A figures/ that is to be replaced and is a symbolic link is refused
+    # here, before the document is rewritten.
+    figures_dir = figures_dir_in(output_md.parent)
+    if args.replace_figures:
+        exit_if_symlink(figures_dir)
+
     # Convert
     output_md.parent.mkdir(parents=True, exist_ok=True)
     if not convert_with_pandoc(tex_file, output_md):
@@ -542,7 +536,9 @@ def main():
         metadata_handoff=args.metadata_handoff,
     )
 
-    # Copy figures
+    # Copy figures, into an emptied directory when asked to replace it
+    if args.replace_figures:
+        remove_figures_dir(figures_dir)
     copy_figures(source_dir, output_md.parent)
 
     print()

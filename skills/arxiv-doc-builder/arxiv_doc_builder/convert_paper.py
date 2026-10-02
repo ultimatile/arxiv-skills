@@ -18,7 +18,7 @@ try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_doc_builder.arxiv_metadata import fetch_metadata, write_metadata_handoff
     from arxiv_doc_builder.figures_dir import (
-        check_figures_dir,
+        exit_if_symlink,
         figures_dir_in,
         remove_figures_dir,
     )
@@ -28,7 +28,7 @@ except ModuleNotFoundError as _exc:
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_metadata import fetch_metadata, write_metadata_handoff
-    from figures_dir import check_figures_dir, figures_dir_in, remove_figures_dir
+    from figures_dir import exit_if_symlink, figures_dir_in, remove_figures_dir
     from _version import read_version
 
 
@@ -141,12 +141,15 @@ def main():
                 )
             else:
                 print("LaTeX source detected, using LaTeX conversion...")
+            # The paper's directory is this command's own, so figures an
+            # earlier revision left in it are not kept.
             latex_args = [
                 args.arxiv_id,
                 "--source-dir",
                 str(source_dir),
                 "--output",
                 str(paper_dir / f"{normalized_arxiv_id}.md"),
+                "--replace-figures",
             ]
             if args.tex_file:
                 latex_args += ["--tex-file", str(args.tex_file)]
@@ -170,15 +173,10 @@ def main():
                 print(f"✗ PDF file not found: {pdf_file}")
                 sys.exit(1)
 
-            # figures/ is removed once the PDF is converted, so it must not
-            # overlap the PDF's directory. Checked here so that nothing is
-            # converted first.
+            # figures/ is removed once the PDF is converted. One that is a
+            # symbolic link is refused here, before the document is rewritten.
             figures_dir = figures_dir_in(paper_dir)
-            try:
-                check_figures_dir(figures_dir, [pdf_file.parent])
-            except ValueError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                sys.exit(1)
+            exit_if_symlink(figures_dir)
 
             rc = run_script(
                 "convert_pdf_simple.py",
@@ -198,7 +196,7 @@ def main():
 
             # The document just written links to no figure, so nothing refers
             # to what an earlier LaTeX conversion copied here.
-            if remove_figures_dir(figures_dir, [pdf_file.parent]):
+            if remove_figures_dir(figures_dir):
                 print(f"Removed {figures_dir}: the PDF conversion links to no figure")
 
     print()

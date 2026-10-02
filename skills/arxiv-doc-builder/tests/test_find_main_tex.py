@@ -66,12 +66,8 @@ def test_cli_exits_2_on_ambiguity_with_candidates_in_stderr(tmp_path):
     # End-to-end CLI contract: invoking convert_latex.py against an
     # ambiguous source dir must exit 2 and report every candidate on stderr.
     # This guards against future refactors that swallow the exception.
-    # The source sits beside the output, as in a paper's directory: an output
-    # inside the source is refused before the main file is looked for.
-    source = tmp_path / "source"
-    source.mkdir()
-    _write_tex(source, "alpha.tex")
-    _write_tex(source, "beta.tex")
+    _write_tex(tmp_path, "alpha.tex")
+    _write_tex(tmp_path, "beta.tex")
 
     script = PACKAGE_DIR / "convert_latex.py"
     result = subprocess.run(
@@ -82,7 +78,7 @@ def test_cli_exits_2_on_ambiguity_with_candidates_in_stderr(tmp_path):
             # ambiguity contract is independent of the specific ID.
             "2409.03108",
             "--source-dir",
-            str(source),
+            str(tmp_path),
             "--output",
             str(tmp_path / "out.md"),
         ],
