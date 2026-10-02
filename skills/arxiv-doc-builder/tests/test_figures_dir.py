@@ -1,15 +1,16 @@
 """What a conversion leaves in the paper's ``figures/`` directory.
 
-Contract: after a LaTeX conversion ``figures/`` holds exactly the image files
-at the top level of the source that was converted, so a file an earlier
+Contract: after a LaTeX conversion ``figures/`` holds only what that
+conversion copied from the source it converted, so a file an earlier
 revision left there, or one placed there by hand, is gone. After a PDF
 fallback there is no ``figures/``, since the document it writes links to no
 figure. A run that fails before it writes the Markdown file leaves
 ``figures/`` as it found it.
 
-Contract: the removal never deletes what it was not meant to. It follows no
-symbolic link, and a ``figures/`` that overlaps the files being converted is
-refused before anything is removed or converted.
+Contract: a ``figures`` that is itself a symbolic link is refused, with the
+link and whatever is behind it left in place. A ``figures/`` that overlaps
+the directory of the files being converted is refused before anything is
+removed or converted. Both hold for the LaTeX conversion and the PDF fallback.
 
 The ``convert_latex.main`` tests replace pandoc and the post-processing, and
 the ``convert_paper.main`` tests replace the step launcher, so nothing here
@@ -35,12 +36,10 @@ _ARXIV_ID = "2606.09995"
 def paper(tmp_path: Path) -> SimpleNamespace:
     """A paper's directory with a ``source/`` holding one main ``.tex``."""
     paper_dir = tmp_path / "paper"
-    source = paper_dir / "source"
-    source.mkdir(parents=True)
-    (source / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+    seed_cached_source(paper_dir)
     return SimpleNamespace(
         dir=paper_dir,
-        source=source,
+        source=paper_dir / "source",
         figures=paper_dir / "figures",
         output=paper_dir / "paper.md",
     )
@@ -69,7 +68,7 @@ def _files(root: Path) -> dict[Path, bytes]:
 # --- copy_figures ---------------------------------------------------------
 
 
-def test_copy_figures_keeps_only_the_sources_top_level_images(paper):
+def test_copy_figures_leaves_only_what_it_copies(paper):
     # The earlier revision had three figures at the top level. The new one
     # dropped the first, moved the second into a subdirectory, and changed the
     # third. A link to the moved figure is rewritten to figures/moved.png, and
@@ -140,8 +139,8 @@ def _source_inside_figures(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _overlap_only_once_resolved(tmp_path: Path) -> tuple[Path, Path]:
-    # The output directory is a link to the source, so the two paths share no
-    # prefix as written.
+    # The output directory is a link to the source, so as written neither
+    # path lies inside the other.
     source = tmp_path / "source"
     source.mkdir()
     (tmp_path / "out").symlink_to(source, target_is_directory=True)
@@ -160,7 +159,6 @@ def _overlap_only_once_resolved(tmp_path: Path) -> tuple[Path, Path]:
 def test_copy_figures_refuses_a_figures_dir_overlapping_the_source(tmp_path, layout):
     source, output_dir = layout(tmp_path)
     source.mkdir(parents=True, exist_ok=True)
-    (source / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
     (source / "fig.png").write_bytes(b"source figure")
     _seed_stale(output_dir / "figures")
     before = _files(tmp_path)
@@ -233,7 +231,8 @@ def test_latex_main_replaces_an_earlier_figures_dir(paper, run_latex_main):
 
 
 def test_latex_main_leaves_figures_when_pandoc_fails(paper, run_latex_main):
-    # The earlier document is still on disk and still links into figures/.
+    # A failed conversion writes no document, so a document an earlier run
+    # wrote would still be the one on disk, linking into figures/.
     stale = _seed_stale(paper.figures)
     (paper.source / "fig.png").write_bytes(b"new revision")
 
@@ -282,7 +281,7 @@ def test_latex_main_refuses_a_tex_file_inside_figures(
     # source check alone would let this run delete the file it converted.
     _seed_stale(paper.figures)
     tex_file = paper.figures / "main.tex"
-    tex_file.write_text("\\documentclass{article}\n", encoding="utf-8")
+    tex_file.write_text("x", encoding="utf-8")
     before = _files(tmp_path)
 
     with pytest.raises(SystemExit) as exit_info:
@@ -330,8 +329,20 @@ def test_pdf_fallback_removes_figures(launch, launched_paper, capsys):
     assert _names(launched_paper.dir) == [f"{LAUNCH_ARXIV_ID}.md", "pdf"]
 
 
+def test_pdf_fallback_reports_no_removal_without_figures(
+    launch, launched_paper, capsys
+):
+    seed_pdf(launched_paper.dir)
+
+    launch.run()
+
+    assert "Removed" not in capsys.readouterr().out
+    assert not launched_paper.figures.exists()
+
+
 def test_pdf_fallback_keeps_figures_when_the_conversion_fails(launch, launched_paper):
-    # The earlier document is still on disk and still links into figures/.
+    # A failed conversion writes no document, so a document an earlier LaTeX
+    # run wrote would still be the one on disk, linking into figures/.
     seed_pdf(launched_paper.dir)
     stale = _seed_stale(launched_paper.figures)
 
@@ -358,6 +369,28 @@ def test_pdf_fallback_refuses_a_symbolic_link(launch, launched_paper, tmp_path, 
         launch.run()
 
     assert launched_paper.figures.is_symlink()
+    assert _files(tmp_path) == before
+
+
+def test_pdf_fallback_refuses_a_pdf_inside_figures(
+    launch, launched_paper, capsys, tmp_path
+):
+    # pdf/ is a link into figures/, so removing figures/ would delete the PDF
+    # being converted. Refused before the converter starts.
+    pdfs = launched_paper.figures / "pdfs"
+    pdfs.mkdir(parents=True)
+    (pdfs / f"{LAUNCH_ARXIV_ID}.pdf").write_bytes(b"%PDF-stub")
+    (launched_paper.dir / "pdf").symlink_to(pdfs, target_is_directory=True)
+    before = _files(tmp_path)
+
+    with pytest.raises(SystemExit) as exit_info:
+        launch.run()
+
+    assert exit_info.value.code == 1
+    assert [child.script for child in launch.children] == ["fetch_paper.py"]
+    err = capsys.readouterr().err
+    assert str(launched_paper.figures) in err
+    assert f"overlaps {launched_paper.dir / 'pdf'}," in err
     assert _files(tmp_path) == before
 
 

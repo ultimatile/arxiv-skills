@@ -259,17 +259,17 @@ paper's directory, both as SKILL.md's Procedure step 1 describes them.
         └── {SAFE_ID}.pdf    # Original PDF, when its download succeeded
 ```
 
-A LaTeX conversion replaces `figures/`. Once it has written the Markdown file,
-it deletes the directory with everything in it, a file placed there by hand
-included, and creates it again before copying, so the directory exists even
-when the conversion finds no file to copy. The PDF fallback, once it has
-written the Markdown file, deletes `figures/` and does not create it again,
-since the document it writes links to no figure. A run that fails before the
-Markdown file is written deletes nothing from `figures/`. A run that fails
-after that, while deleting or copying, exits with an error and can leave
-`figures/` incomplete. The PDF scripts run by hand, the ones
-`references/pdf-conversion.md` gives commands for, delete nothing from
-`figures/`.
+A LaTeX conversion replaces `figures/` as its last step, once the Markdown
+file is complete: it deletes the directory with everything in it, a file
+placed there by hand included, and creates it again before copying, so the
+directory exists even when the conversion finds no file to copy. The PDF
+fallback deletes `figures/` as its last step, once the Markdown file is
+complete, and does not create it again, since the document it writes links to
+no figure. A run of either kind that fails before reaching its last step
+deletes nothing from `figures/`, and one that fails during that step exits
+with an error and can leave `figures/` incomplete. The PDF scripts run by
+hand, the ones `references/pdf-conversion.md` gives commands for, delete
+nothing from `figures/`.
 
 The provenance metadata lives in the document's YAML frontmatter (see above).
 `.arxiv-fetch.json` is an internal sidecar used only for version-drift

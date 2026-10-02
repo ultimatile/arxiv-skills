@@ -6,7 +6,6 @@ Handles fetching and conversion automatically.
 """
 
 import argparse
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,12 +17,18 @@ from pathlib import Path
 try:
     from arxiv_doc_builder.arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_doc_builder.arxiv_metadata import fetch_metadata, write_metadata_handoff
+    from arxiv_doc_builder.figures_dir import (
+        check_figures_dir,
+        figures_dir_in,
+        remove_figures_dir,
+    )
     from arxiv_doc_builder._version import read_version
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
     from arxiv_id import safe_arxiv_id, validate_arxiv_id
     from arxiv_metadata import fetch_metadata, write_metadata_handoff
+    from figures_dir import check_figures_dir, figures_dir_in, remove_figures_dir
     from _version import read_version
 
 
@@ -64,7 +69,9 @@ def main():
         "--output-dir",
         type=Path,
         default=Path("."),
-        help="Output directory (default: current directory)",
+        help="Output directory (default: current directory). The paper's "
+        "directory is created in it, and a conversion replaces or removes "
+        "the figures/ directory in that one.",
     )
     parser.add_argument(
         "--tex-file",
@@ -163,6 +170,16 @@ def main():
                 print(f"✗ PDF file not found: {pdf_file}")
                 sys.exit(1)
 
+            # figures/ is removed once the PDF is converted, so it must not
+            # overlap the PDF's directory. Checked here so that nothing is
+            # converted first.
+            figures_dir = figures_dir_in(paper_dir)
+            try:
+                check_figures_dir(figures_dir, [pdf_file.parent])
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(1)
+
             rc = run_script(
                 "convert_pdf_simple.py",
                 [
@@ -180,12 +197,8 @@ def main():
                 sys.exit(1)
 
             # The document just written links to no figure, so nothing refers
-            # to what an earlier LaTeX conversion copied here. Removed the way
-            # copy_figures does it: errors stop the run, and a symbolic link,
-            # dangling or not, reaches rmtree and is refused.
-            figures_dir = paper_dir / "figures"
-            if figures_dir.is_symlink() or figures_dir.exists():
-                shutil.rmtree(figures_dir)
+            # to what an earlier LaTeX conversion copied here.
+            if remove_figures_dir(figures_dir, [pdf_file.parent]):
                 print(f"Removed {figures_dir}: the PDF conversion links to no figure")
 
     print()

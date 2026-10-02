@@ -29,6 +29,11 @@ try:
         format_unavailable_warning,
         resolve_metadata,
     )
+    from arxiv_doc_builder.figures_dir import (
+        check_figures_dir,
+        figures_dir_in,
+        remove_figures_dir,
+    )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
         raise
@@ -41,6 +46,7 @@ except ModuleNotFoundError as _exc:
         format_unavailable_warning,
         resolve_metadata,
     )
+    from figures_dir import check_figures_dir, figures_dir_in, remove_figures_dir
 
 
 class AmbiguousMainTexError(Exception):
@@ -372,22 +378,15 @@ def post_process_markdown(
     print("✓ Post-processed Markdown")
 
 
-def _dirs_overlap(first: Path, second: Path) -> bool:
-    """Whether two directories, once resolved, are the same or nested."""
-    a, b = first.resolve(), second.resolve()
-    return a == b or a in b.parents or b in a.parents
-
-
 def copy_figures(source_dir: Path, output_dir: Path):
     """Replace the output directory's ``figures/`` with the source's figures.
 
     The directory is removed with everything in it and created again, so it
     holds only what this run copies. A file an earlier revision of the paper
-    left there, or one placed there by hand, does not survive. A ``figures``
-    that is a symbolic link stops the run, since the removal follows no link.
+    left there, or one placed there by hand, does not survive.
 
-    Raises ValueError, before removing anything, when ``figures/`` and
-    ``source_dir`` overlap: the removal would delete the source.
+    The removal is ``remove_figures_dir``'s, with ``source_dir`` as the input
+    it must not overlap, and raises as that function does.
 
     Only top-level figures are copied. Recursing is tempting but unsafe:
     the markdown post-processor rewrites all image references to
@@ -397,17 +396,8 @@ def copy_figures(source_dir: Path, output_dir: Path):
     fix requires collision-aware, path-preserving copying plus a smarter
     rewriter, which is out of scope here.
     """
-    figures_dir = output_dir / "figures"
-    if _dirs_overlap(figures_dir, source_dir):
-        raise ValueError(
-            f"{figures_dir} overlaps the source directory {source_dir}; "
-            "replacing it would delete source files"
-        )
-    # No ignore_errors: a removal that fails must not leave an earlier
-    # revision's files beside this run's. is_symlink() sends a dangling link to
-    # rmtree too, which refuses any link.
-    if figures_dir.is_symlink() or figures_dir.exists():
-        shutil.rmtree(figures_dir)
+    figures_dir = figures_dir_in(output_dir)
+    remove_figures_dir(figures_dir, [source_dir])
     figures_dir.mkdir()
 
     # Common image extensions
@@ -481,19 +471,15 @@ def main():
     # copy_figures replaces figures/, so it must not overlap what is converted.
     # An auto-detected main .tex sits in source_dir; an explicit one may not,
     # and pandoc reads the files beside it.
-    figures_dir = output_md.parent / "figures"
+    figures_dir = figures_dir_in(output_md.parent)
     input_dirs = [source_dir]
     if args.tex_file:
         input_dirs.append(args.tex_file.parent)
-    for input_dir in input_dirs:
-        if _dirs_overlap(figures_dir, input_dir):
-            print(
-                f"Error: {figures_dir} is replaced on every conversion, and it "
-                f"overlaps {input_dir}, which holds the files to convert. "
-                "Choose an --output outside that directory.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    try:
+        check_figures_dir(figures_dir, input_dirs)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Find main .tex file
     if args.tex_file:
