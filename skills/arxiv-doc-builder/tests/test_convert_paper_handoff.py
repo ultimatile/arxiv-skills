@@ -5,81 +5,23 @@ drive ``main()`` with the lookup and the child launcher replaced, and record
 what each child would have received.
 """
 
-import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from arxiv_doc_builder import convert_paper
-from arxiv_doc_builder.arxiv_metadata import (
-    METADATA_OK,
-    METADATA_SOURCE_ARXIV,
-    ArxivMetadata,
-    MetadataFetch,
-    read_metadata_handoff,
-)
-
-ARXIV_ID = "2409.03108"
-LOOKUP = MetadataFetch(
-    METADATA_OK,
-    metadata=ArxivMetadata(
-        title="Handed Over", version="2409.03108v2", source=METADATA_SOURCE_ARXIV
-    ),
-)
-
-
-@pytest.fixture
-def launch(monkeypatch, tmp_path):
-    """Run ``main()`` recording the lookups made and the children started.
-
-    Each recorded child carries its script name, its handoff path, and what the
-    handoff held when the child started (``None`` when no file was there).
-    ``exit_codes`` maps a script name to the code its child returns.
-    """
-    state = SimpleNamespace(lookups=[], children=[], output_dir=tmp_path)
-
-    def fake_fetch(arxiv_id):
-        state.lookups.append(arxiv_id)
-        return LOOKUP
-
-    def run(arxiv_id=ARXIV_ID, *, exit_codes=None):
-        codes = exit_codes or {}
-
-        def fake_run_script(script_name, args, use_uv=False):
-            handoff = Path(args[args.index("--metadata-handoff") + 1])
-            state.children.append(
-                SimpleNamespace(
-                    script=script_name,
-                    handoff=handoff,
-                    read=read_metadata_handoff(handoff, ARXIV_ID)
-                    if handoff.is_file()
-                    else None,
-                )
-            )
-            return codes.get(script_name, 0)
-
-        monkeypatch.setattr(convert_paper, "fetch_metadata", fake_fetch)
-        monkeypatch.setattr(convert_paper, "run_script", fake_run_script)
-        monkeypatch.setattr(
-            sys, "argv", ["convert_paper.py", arxiv_id, "--output-dir", str(tmp_path)]
-        )
-        convert_paper.main()
-
-    state.run = run
-    return state
+from conftest import LAUNCH_ARXIV_ID, LAUNCH_LOOKUP
 
 
 def _seed_latex(output_dir: Path) -> None:
-    source = output_dir / ARXIV_ID / "source"
+    source = output_dir / LAUNCH_ARXIV_ID / "source"
     source.mkdir(parents=True)
     (source / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
 
 
 def _seed_pdf(output_dir: Path) -> None:
-    pdf_dir = output_dir / ARXIV_ID / "pdf"
+    pdf_dir = output_dir / LAUNCH_ARXIV_ID / "pdf"
     pdf_dir.mkdir(parents=True)
-    (pdf_dir / f"{ARXIV_ID}.pdf").write_bytes(b"%PDF-stub")
+    (pdf_dir / f"{LAUNCH_ARXIV_ID}.pdf").write_bytes(b"%PDF-stub")
 
 
 @pytest.mark.parametrize(
@@ -92,10 +34,10 @@ def test_one_lookup_reaches_every_step_through_one_file(launch, seed, converter)
 
     launch.run()
 
-    assert launch.lookups == [ARXIV_ID]
+    assert launch.lookups == [LAUNCH_ARXIV_ID]
     assert [child.script for child in launch.children] == ["fetch_paper.py", converter]
     assert len({child.handoff for child in launch.children}) == 1
-    assert all(child.read == LOOKUP for child in launch.children)
+    assert all(child.read == LAUNCH_LOOKUP for child in launch.children)
     assert not launch.children[0].handoff.exists()
 
 
