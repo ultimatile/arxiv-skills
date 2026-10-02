@@ -30,9 +30,9 @@ try:
         resolve_metadata,
     )
     from arxiv_doc_builder.figures_dir import (
-        exit_if_symlink,
         figures_dir_in,
-        remove_figures_dir,
+        record_figures,
+        remove_recorded_figures,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -46,7 +46,7 @@ except ModuleNotFoundError as _exc:
         format_unavailable_warning,
         resolve_metadata,
     )
-    from figures_dir import exit_if_symlink, figures_dir_in, remove_figures_dir
+    from figures_dir import figures_dir_in, record_figures, remove_recorded_figures
 
 
 class AmbiguousMainTexError(Exception):
@@ -381,8 +381,8 @@ def post_process_markdown(
 def copy_figures(source_dir: Path, output_dir: Path):
     """Copy figure files to output directory.
 
-    Nothing already in ``figures/`` is removed here. ``main`` removes the
-    directory first when run with ``--replace-figures``.
+    The files the record in ``figures/`` names, which an earlier run wrote
+    for what it copied, are removed first. No other file is removed.
 
     Only top-level figures are copied. Recursing is tempting but unsafe:
     the markdown post-processor rewrites all image references to
@@ -397,13 +397,18 @@ def copy_figures(source_dir: Path, output_dir: Path):
 
     # Common image extensions
     image_exts = [".png", ".jpg", ".jpeg", ".pdf", ".eps"]
+    img_files = [img for ext in image_exts for img in source_dir.glob(f"*{ext}")]
 
-    copied = 0
-    for ext in image_exts:
-        for img_file in source_dir.glob(f"*{ext}"):
-            dest = figures_dir / img_file.name
-            dest.write_bytes(img_file.read_bytes())
-            copied += 1
+    # The record is rewritten before the copy, not after it: a copy that fails
+    # partway then leaves a record naming everything this run set out to copy,
+    # and the next run removes whatever of it arrived.
+    remove_recorded_figures(figures_dir)
+    record_figures(figures_dir, [img.name for img in img_files])
+
+    for img_file in img_files:
+        dest = figures_dir / img_file.name
+        dest.write_bytes(img_file.read_bytes())
+    copied = len(img_files)
 
     if copied > 0:
         print(f"✓ Copied {copied} figure(s) to {figures_dir}")
@@ -427,13 +432,6 @@ def main():
         "--tex-file",
         type=Path,
         help="Specify the main .tex file directly (overrides auto-detection)",
-    )
-    parser.add_argument(
-        "--replace-figures",
-        action="store_true",
-        help="Remove the figures/ directory beside the output file, with "
-        "everything in it, before copying the figures. Without this option "
-        "nothing already there is removed. convert-paper passes it.",
     )
     add_metadata_handoff_option(parser)
 
@@ -517,12 +515,6 @@ def main():
         print("Error: pandoc not found. Install with: brew install pandoc")
         sys.exit(1)
 
-    # A figures/ that is to be replaced and is a symbolic link is refused
-    # here, before the document is rewritten.
-    figures_dir = figures_dir_in(output_md.parent)
-    if args.replace_figures:
-        exit_if_symlink(figures_dir)
-
     # Convert
     output_md.parent.mkdir(parents=True, exist_ok=True)
     if not convert_with_pandoc(tex_file, output_md):
@@ -536,9 +528,7 @@ def main():
         metadata_handoff=args.metadata_handoff,
     )
 
-    # Copy figures, into an emptied directory when asked to replace it
-    if args.replace_figures:
-        remove_figures_dir(figures_dir)
+    # Copy figures
     copy_figures(source_dir, output_md.parent)
 
     print()

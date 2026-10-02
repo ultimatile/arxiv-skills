@@ -210,9 +210,8 @@ LAUNCH_LOOKUP = MetadataFetch(
 def launch(monkeypatch, tmp_path):
     """Run ``convert_paper.main()`` recording the lookups made and the children started.
 
-    Each recorded child carries its script name, its arguments, its handoff
-    path, and what the handoff held when the child started (``None`` when no
-    file was there).
+    Each recorded child carries its script name, its handoff path, and what the
+    handoff held when the child started (``None`` when no file was there).
     ``exit_codes`` maps a script name to the code its child returns.
     """
     state = SimpleNamespace(lookups=[], children=[], output_dir=tmp_path)
@@ -229,7 +228,6 @@ def launch(monkeypatch, tmp_path):
             state.children.append(
                 SimpleNamespace(
                     script=script_name,
-                    args=list(args),
                     handoff=handoff,
                     read=read_metadata_handoff(handoff, LAUNCH_ARXIV_ID)
                     if handoff.is_file()

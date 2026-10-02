@@ -252,6 +252,7 @@ paper's directory, both as SKILL.md's Procedure step 1 describes them.
     ├── {SAFE_ID}.md         # Main document (frontmatter + paper content)
     ├── .arxiv-fetch.json    # Fetch-side version record (drift detection)
     ├── figures/
+    │   ├── .copied.json     # Described below the tree
     │   └── ...              # A LaTeX conversion copies the .png, .jpg, .jpeg, .pdf and .eps files at the top level of source/ here
     ├── source/              # The paper's source as unpacked from arXiv; a PDF-only paper has none
     │   └── ...
@@ -259,15 +260,14 @@ paper's directory, both as SKILL.md's Procedure step 1 describes them.
         └── {SAFE_ID}.pdf    # Original PDF, when its download succeeded
 ```
 
-`convert-paper` replaces `figures/` as the last step of a LaTeX conversion,
-once the Markdown file is complete: it deletes the directory with everything
-in it, a file placed there by hand included, and creates it again before
-copying, so the directory exists even when the conversion finds no file to
-copy. As the last step of a PDF fallback, once the Markdown file is complete,
-it deletes `figures/` and does not create it again, since the document it
-writes links to no figure. A run of either kind that fails before reaching
-its last step deletes nothing from `figures/`, and one that fails during that
-step exits with an error and can leave `figures/` incomplete.
+The LaTeX conversion creates `figures/` even when it finds no file to copy
+there, and the PDF fallback does not create it.
+
+`figures/.copied.json` lists the names of the files a LaTeX conversion copies
+into `figures/`. Before it copies, the LaTeX conversion deletes the files the
+list names, and then it writes the list anew. The PDF fallback deletes the
+files the list names and the list itself. Neither deletes a file the list
+does not name.
 
 The provenance metadata lives in the document's YAML frontmatter (see above).
 `.arxiv-fetch.json` is an internal sidecar used only for version-drift
