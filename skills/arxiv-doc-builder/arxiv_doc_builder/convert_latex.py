@@ -31,8 +31,9 @@ try:
     )
     from arxiv_doc_builder.figures_dir import (
         figures_dir_in,
+        read_record,
         record_figures,
-        remove_recorded_figures,
+        remove_figure,
     )
 except ModuleNotFoundError as _exc:
     if _exc.name != "arxiv_doc_builder":
@@ -46,7 +47,7 @@ except ModuleNotFoundError as _exc:
         format_unavailable_warning,
         resolve_metadata,
     )
-    from figures_dir import figures_dir_in, record_figures, remove_recorded_figures
+    from figures_dir import figures_dir_in, read_record, record_figures, remove_figure
 
 
 class AmbiguousMainTexError(Exception):
@@ -381,8 +382,8 @@ def post_process_markdown(
 def copy_figures(source_dir: Path, output_dir: Path):
     """Copy figure files to output directory.
 
-    The files the record in ``figures/`` names, which an earlier run wrote
-    for what it copied, are removed first. No other file is removed.
+    A file that the record in ``figures/`` names and this run does not copy
+    is removed. No other file is removed.
 
     Only top-level figures are copied. Recursing is tempting but unsafe:
     the markdown post-processor rewrites all image references to
@@ -399,15 +400,34 @@ def copy_figures(source_dir: Path, output_dir: Path):
     image_exts = [".png", ".jpg", ".jpeg", ".pdf", ".eps"]
     img_files = [img for ext in image_exts for img in source_dir.glob(f"*{ext}")]
 
-    # The record is rewritten before the copy, not after it: a copy that fails
-    # partway then leaves a record naming everything this run set out to copy,
-    # and the next run removes whatever of it arrived.
-    remove_recorded_figures(figures_dir)
-    record_figures(figures_dir, [img.name for img in img_files])
+    names = {img.name for img in img_files}
 
+    recorded = read_record(figures_dir)
+    if recorded is None:
+        # Nothing says which of the files already here an earlier run copied.
+        unrecorded = [e for e in figures_dir.iterdir() if e.name not in names]
+        if unrecorded:
+            print(
+                f"Note: {figures_dir} holds {len(unrecorded)} item(s) that no "
+                "record names, so they are kept. A figure left by an earlier "
+                "revision of the paper has to be deleted by hand.",
+                file=sys.stderr,
+            )
+        recorded = []
+    for name in recorded:
+        if name not in names:
+            remove_figure(figures_dir, name)
+
+    # The record gains a name only once that file is written, so a copy that
+    # stops partway leaves a record naming no file this directory did not get
+    # from a conversion.
+    copied_names = {name for name in recorded if name in names}
+    record_figures(figures_dir, copied_names)
     for img_file in img_files:
-        dest = figures_dir / img_file.name
-        dest.write_bytes(img_file.read_bytes())
+        (figures_dir / img_file.name).write_bytes(img_file.read_bytes())
+        if img_file.name not in copied_names:
+            copied_names.add(img_file.name)
+            record_figures(figures_dir, copied_names)
     copied = len(img_files)
 
     if copied > 0:

@@ -17,7 +17,7 @@ import pytest
 from conftest import LAUNCH_ARXIV_ID, seed_cached_source, seed_pdf
 
 from arxiv_doc_builder import convert_latex
-from arxiv_doc_builder.figures_dir import RECORD_NAME, record_figures
+from arxiv_doc_builder.figures_dir import RECORD_NAME, read_record, record_figures
 
 _EARLIER = b"earlier revision"
 _ARXIV_ID = "2606.09995"
@@ -69,7 +69,7 @@ def _recorded(figures: Path) -> list[str]:
 # --- copy_figures ---------------------------------------------------------
 
 
-def test_a_copy_removes_the_figures_the_source_no_longer_has(paper):
+def test_a_copy_removes_the_recorded_figures_it_does_not_copy_again(paper):
     # The earlier revision had three figures at the top level. The new one
     # dropped the first, moved the second into a subdirectory, and changed the
     # third. A link to the moved figure is rewritten to figures/moved.png, and
@@ -103,15 +103,25 @@ def test_a_copy_keeps_a_file_placed_by_hand(paper):
     assert nested.read_bytes() == _EARLIER
 
 
-def test_a_copy_keeps_a_file_copied_before_any_record_was_written(paper):
+def test_a_copy_keeps_and_reports_files_no_record_covers(paper, capsys):
     # A directory an earlier version of the converter filled has no record,
-    # so nothing says which of its files were copied. They stay.
+    # so nothing says which of its files were copied. They stay, and the run
+    # says so once: the record it writes makes the next run silent.
     old = _seed_unrecorded(paper.figures, "old.png")
+    (paper.source / "fig.png").write_bytes(b"new revision")
 
     convert_latex.copy_figures(paper.source, paper.dir)
 
-    assert _figures(paper.figures) == ["old.png"]
+    assert _figures(paper.figures) == ["fig.png", "old.png"]
     assert old.read_bytes() == _EARLIER
+    err = capsys.readouterr().err
+    assert str(paper.figures) in err
+    assert "1 item(s)" in err
+
+    convert_latex.copy_figures(paper.source, paper.dir)
+
+    assert capsys.readouterr().err == ""
+    assert _figures(paper.figures) == ["fig.png", "old.png"]
 
 
 def test_a_copy_creates_the_directory_and_an_empty_record_without_images(paper):
@@ -126,21 +136,91 @@ def test_a_copy_creates_the_directory_and_an_empty_record_without_images(paper):
 
 def test_a_copy_that_fails_partway_is_cleaned_up_by_the_next(paper):
     # A directory named like an image stops the copy after one file has
-    # arrived: .png files are copied before .jpg ones. The record was written
-    # before the copy began, so it names the file that arrived, and the next
-    # run removes it once the source no longer has it.
+    # arrived: .png files are copied before .jpg ones. The file that arrived
+    # is recorded, so the next run removes it once the source no longer has
+    # it.
     (paper.source / "arrived.png").write_bytes(b"new revision")
     (paper.source / "blocks.jpg").mkdir()
     with pytest.raises(OSError):
         convert_latex.copy_figures(paper.source, paper.dir)
     assert _figures(paper.figures) == ["arrived.png"]
-    assert _recorded(paper.figures) == ["arrived.png", "blocks.jpg"]
+    assert _recorded(paper.figures) == ["arrived.png"]
 
     (paper.source / "arrived.png").unlink()
     (paper.source / "blocks.jpg").rmdir()
     convert_latex.copy_figures(paper.source, paper.dir)
 
     assert _figures(paper.figures) == []
+
+
+def test_a_copy_that_fails_partway_keeps_the_figures_it_did_not_reach(paper):
+    # The blocker is a .png and so comes before the .jpg an earlier run
+    # copied. That figure is still in the source, so it is overwritten in
+    # place when its turn comes, never removed ahead of the copy.
+    _seed_copied(paper.figures, "kept.jpg")
+    (paper.source / "kept.jpg").write_bytes(b"new revision")
+    (paper.source / "blocks.png").mkdir()
+
+    with pytest.raises(OSError):
+        convert_latex.copy_figures(paper.source, paper.dir)
+
+    assert (paper.figures / "kept.jpg").read_bytes() == _EARLIER
+    assert _recorded(paper.figures) == ["kept.jpg"]
+
+
+def test_a_copy_that_fails_partway_does_not_claim_a_file_placed_by_hand(paper):
+    # The source has a figure of the same name as the hand-placed file, but
+    # the copy stops before reaching it. The file was never overwritten, so it
+    # is not recorded, and it outlives the source dropping that figure.
+    mine = _seed_unrecorded(paper.figures, "mine.jpg")
+    record_figures(paper.figures, [])
+    (paper.source / "mine.jpg").write_bytes(b"new revision")
+    (paper.source / "blocks.png").mkdir()
+    with pytest.raises(OSError):
+        convert_latex.copy_figures(paper.source, paper.dir)
+    assert _recorded(paper.figures) == []
+
+    (paper.source / "mine.jpg").unlink()
+    (paper.source / "blocks.png").rmdir()
+    convert_latex.copy_figures(paper.source, paper.dir)
+
+    assert mine.read_bytes() == _EARLIER
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="needs a user that a read-only file stops",
+)
+def test_a_copy_that_cannot_write_a_file_does_not_record_it(paper):
+    # The hand-placed file is read-only, so the copy over it fails. A name
+    # joins the record only after its file is written, so this one does not,
+    # and the file outlives the source dropping that figure.
+    mine = _seed_unrecorded(paper.figures, "mine.png")
+    record_figures(paper.figures, [])
+    mine.chmod(0o444)
+    (paper.source / "mine.png").write_bytes(b"new revision")
+    with pytest.raises(OSError):
+        convert_latex.copy_figures(paper.source, paper.dir)
+    assert _recorded(paper.figures) == []
+
+    (paper.source / "mine.png").unlink()
+    convert_latex.copy_figures(paper.source, paper.dir)
+
+    assert mine.read_bytes() == _EARLIER
+
+
+def test_a_copy_into_the_source_directory_removes_no_source_figure(paper):
+    # figures/ is a link to the source, so every figure this run copies is
+    # also a recorded one from the run before. Only recorded names the run
+    # does not copy again are removed, which leaves the source whole.
+    paper.figures.symlink_to(paper.source, target_is_directory=True)
+    (paper.source / "a.png").write_bytes(b"source figure")
+
+    convert_latex.copy_figures(paper.source, paper.dir)
+    convert_latex.copy_figures(paper.source, paper.dir)
+
+    assert (paper.source / "a.png").read_bytes() == b"source figure"
+    assert (paper.source / "main.tex").exists()
 
 
 def test_a_copy_round_trips_names_json_has_to_escape(paper):
@@ -207,6 +287,16 @@ def test_a_record_cannot_name_a_file_outside_the_directory(paper):
 
     assert outside.read_bytes() == _EARLIER
     assert nested.read_bytes() == _EARLIER
+
+
+def test_read_record_drops_entries_that_are_not_plain_file_names(paper):
+    paper.figures.mkdir()
+    (paper.figures / RECORD_NAME).write_text(
+        json.dumps({"copied": ["", "..", ".", "a/b.png", RECORD_NAME, "ok.png"]}),
+        encoding="utf-8",
+    )
+
+    assert read_record(paper.figures) == ["ok.png"]
 
 
 def test_a_recorded_name_that_is_now_a_directory_is_left(paper):
@@ -287,7 +377,9 @@ def run_latex_main(monkeypatch, paper):
     return state
 
 
-def test_latex_main_removes_the_figures_the_source_no_longer_has(paper, run_latex_main):
+def test_latex_main_removes_the_recorded_figures_it_does_not_copy_again(
+    paper, run_latex_main
+):
     _seed_copied(paper.figures, "stale.png")
     (paper.source / "fig.png").write_bytes(b"new revision")
 
@@ -338,9 +430,9 @@ def test_pdf_fallback_removes_the_copied_figures_and_the_record(
     # The record goes with the copied files; the file placed by hand stays.
     assert _entries(launched_paper.figures) == ["mine.png"]
     assert mine.read_bytes() == _EARLIER
-    assert f"Removed 2 figure(s) from {launched_paper.figures}" in (
-        capsys.readouterr().out
-    )
+    captured = capsys.readouterr()
+    assert f"Removed 2 figure(s) from {launched_paper.figures}" in captured.out
+    assert captured.err == ""
 
 
 def test_pdf_fallback_does_not_count_the_record_as_a_figure(
@@ -357,7 +449,33 @@ def test_pdf_fallback_does_not_count_the_record_as_a_figure(
     assert f"Removed 1 figure(s) from {launched_paper.figures}" in (
         capsys.readouterr().out
     )
-    assert _entries(launched_paper.figures) == []
+
+
+def test_pdf_fallback_removes_a_figures_directory_it_emptied(launch, launched_paper):
+    seed_pdf(launched_paper.dir)
+    _seed_copied(launched_paper.figures, "a.png")
+    document = launched_paper.dir / f"{LAUNCH_ARXIV_ID}.md"
+    document.write_text("earlier document\n", encoding="utf-8")
+
+    launch.run()
+
+    # Only figures/ went: the rest of the paper's directory is untouched.
+    assert _entries(launched_paper.dir) == [f"{LAUNCH_ARXIV_ID}.md", "pdf"]
+
+
+def test_pdf_fallback_keeps_a_linked_figures_directory_it_emptied(
+    launch, launched_paper, capsys, tmp_path
+):
+    seed_pdf(launched_paper.dir)
+    target = tmp_path / "elsewhere"
+    _seed_copied(target, "copied.png")
+    launched_paper.figures.symlink_to(target, target_is_directory=True)
+
+    launch.run()
+
+    assert launched_paper.figures.is_symlink()
+    assert _entries(target) == []
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize(
@@ -365,16 +483,16 @@ def test_pdf_fallback_does_not_count_the_record_as_a_figure(
     [
         lambda figures: None,
         lambda figures: _seed_unrecorded(figures, "old.png"),
+        lambda figures: figures.mkdir(),
         lambda figures: figures.write_text("not a directory", encoding="utf-8"),
-        lambda figures: (figures / RECORD_NAME).mkdir(parents=True),
     ],
-    ids=["no-figures", "no-record", "figures-is-a-file", "record-is-a-directory"],
+    ids=["no-figures", "no-record", "empty-figures", "figures-is-a-file"],
 )
-def test_pdf_fallback_leaves_figures_alone_without_a_record_file(
+def test_pdf_fallback_leaves_figures_alone_without_a_record(
     launch, launched_paper, capsys, tmp_path, seed
 ):
-    # Without a record file the PDF fallback has nothing to remove, whatever
-    # is at figures/, and none of these shapes stops it.
+    # Without a record the PDF fallback has nothing to remove, whatever is at
+    # figures/, and none of these shapes stops it.
     seed_pdf(launched_paper.dir)
     seed(launched_paper.figures)
     before = sorted(str(p) for p in tmp_path.rglob("*"))
@@ -385,6 +503,22 @@ def test_pdf_fallback_leaves_figures_alone_without_a_record_file(
     captured = capsys.readouterr()
     assert "Removed" not in captured.out
     assert captured.err == ""
+
+
+def test_pdf_fallback_warns_about_a_record_that_is_a_directory(
+    launch, launched_paper, capsys, tmp_path
+):
+    seed_pdf(launched_paper.dir)
+    kept = _seed_unrecorded(launched_paper.figures, "a.png")
+    (launched_paper.figures / RECORD_NAME).mkdir()
+
+    launch.run()
+
+    assert kept.read_bytes() == _EARLIER
+    assert (launched_paper.figures / RECORD_NAME).is_dir()
+    captured = capsys.readouterr()
+    assert str(launched_paper.figures / RECORD_NAME) in captured.err
+    assert "Removed" not in captured.out
 
 
 def test_pdf_fallback_with_an_unusable_record_removes_only_the_record(
@@ -402,22 +536,6 @@ def test_pdf_fallback_with_an_unusable_record_removes_only_the_record(
     captured = capsys.readouterr()
     assert str(launched_paper.figures / RECORD_NAME) in captured.err
     assert "Removed" not in captured.out
-
-
-def test_pdf_fallback_works_through_a_linked_figures_directory(
-    launch, launched_paper, tmp_path
-):
-    seed_pdf(launched_paper.dir)
-    target = tmp_path / "elsewhere"
-    _seed_copied(target, "copied.png")
-    theirs = _seed_unrecorded(target, "theirs.png")
-    launched_paper.figures.symlink_to(target, target_is_directory=True)
-
-    launch.run()
-
-    assert launched_paper.figures.is_symlink()
-    assert _entries(target) == ["theirs.png"]
-    assert theirs.read_bytes() == _EARLIER
 
 
 @pytest.mark.skipif(
