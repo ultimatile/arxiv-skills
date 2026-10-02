@@ -7,14 +7,23 @@ any other path) would make the explicit override unusable for source
 layouts where the real entrypoint lives in a subdirectory, or where
 source/ contains no top-level .tex files at all.
 
-``main()`` runs in the test process with only its own metadata lookup
-replaced. The steps it starts are real child processes, which read that
-lookup from the handoff file, so nothing here reaches the network.
+Contract: the PDF fallback converts only the file the fetch step writes,
+``pdf/{id}.pdf`` in the paper's directory. A PDF anywhere else in that
+directory is not converted, and the run exits 1 naming the path it looked
+for.
+
+The --tex-file test runs ``main()`` in the test process with only its own
+metadata lookup replaced. The steps it starts are real child processes,
+which read that lookup from the handoff file. The PDF-location test
+replaces the step launcher as well, since the lookup under test is
+``main()``'s own. Nothing here reaches the network.
 """
 
 import json
 import shutil
 import sys
+from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -105,3 +114,38 @@ def test_tex_file_forces_latex_path_even_with_no_top_level_tex(
     # Negative assertion: the PDF branch must NOT have been taken. Its
     # own marker string would indicate a routing regression.
     assert "falling back to naive PDF conversion" not in out, out
+
+
+def test_a_pdf_outside_pdf_dir_is_not_converted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    patch_fetch: Callable[[object, MetadataFetch], None],
+    probe_with_version: MetadataFetch,
+) -> None:
+    arxiv_id = "2409.03108"
+    paper_dir = tmp_path / arxiv_id
+    paper_dir.mkdir()
+    # Directly in the paper's directory, where no step writes a PDF.
+    (paper_dir / f"{arxiv_id}.pdf").write_bytes(b"%PDF-stub")
+
+    started: list[str] = []
+
+    def fake_run_script(script_name: str, args: list[str], use_uv: bool = False) -> int:
+        started.append(script_name)
+        return 0
+
+    patch_fetch(convert_paper, probe_with_version)
+    monkeypatch.setattr(convert_paper, "run_script", fake_run_script)
+    monkeypatch.setattr(
+        sys, "argv", ["convert_paper.py", arxiv_id, "--output-dir", str(tmp_path)]
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        convert_paper.main()
+
+    assert exit_info.value.code == 1
+    # The fetch step ran and no converter followed it, so the exit is the PDF
+    # lookup's and not an earlier step's.
+    assert started == ["fetch_paper.py"]
+    assert str(paper_dir / "pdf" / f"{arxiv_id}.pdf") in capsys.readouterr().out

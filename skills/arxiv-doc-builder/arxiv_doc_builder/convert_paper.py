@@ -157,12 +157,9 @@ def main():
             print("  Output quality varies — inspect the result and consider")
             print("  using convert_pdf_double_column.py or convert_pdf_extract.py")
             print("  if the output is garbled.")
-            # Check both possible PDF locations
             pdf_file = paper_dir / "pdf" / f"{normalized_arxiv_id}.pdf"
             if not pdf_file.exists():
-                pdf_file = paper_dir / f"{normalized_arxiv_id}.pdf"
-            if not pdf_file.exists():
-                print(f"✗ PDF file not found in {paper_dir}")
+                print(f"✗ PDF file not found: {pdf_file}")
                 sys.exit(1)
 
             rc = run_script(
