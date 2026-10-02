@@ -181,6 +181,16 @@ def seed_cached_source(paper_dir: Path) -> None:
     (source / "main.tex").write_text("x", encoding="utf-8")
 
 
+def seed_pdf(paper_dir: Path) -> None:
+    """Put the PDF the fetch step would have downloaded under ``paper_dir``.
+
+    It goes where the PDF fallback looks for it, named after the directory.
+    """
+    pdf_dir = paper_dir / "pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    (pdf_dir / f"{paper_dir.name}.pdf").write_bytes(b"%PDF-stub")
+
+
 def refuse_lookup(_arxiv_id: str) -> MetadataFetch:
     """A ``fetch_metadata`` stand-in for steps that must not look anything up."""
     raise AssertionError("a step given a metadata handoff looked the record up")

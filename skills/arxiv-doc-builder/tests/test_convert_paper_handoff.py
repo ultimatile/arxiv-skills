@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import LAUNCH_ARXIV_ID, LAUNCH_LOOKUP
+from conftest import LAUNCH_ARXIV_ID, LAUNCH_LOOKUP, seed_pdf
 
 
 def _seed_latex(output_dir: Path) -> None:
@@ -19,9 +19,7 @@ def _seed_latex(output_dir: Path) -> None:
 
 
 def _seed_pdf(output_dir: Path) -> None:
-    pdf_dir = output_dir / LAUNCH_ARXIV_ID / "pdf"
-    pdf_dir.mkdir(parents=True)
-    (pdf_dir / f"{LAUNCH_ARXIV_ID}.pdf").write_bytes(b"%PDF-stub")
+    seed_pdf(output_dir / LAUNCH_ARXIV_ID)
 
 
 @pytest.mark.parametrize(

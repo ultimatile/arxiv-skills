@@ -372,8 +372,22 @@ def post_process_markdown(
     print("✓ Post-processed Markdown")
 
 
+def _dirs_overlap(first: Path, second: Path) -> bool:
+    """Whether two directories, once resolved, are the same or nested."""
+    a, b = first.resolve(), second.resolve()
+    return a == b or a in b.parents or b in a.parents
+
+
 def copy_figures(source_dir: Path, output_dir: Path):
-    """Copy figure files to output directory.
+    """Replace the output directory's ``figures/`` with the source's figures.
+
+    The directory is removed with everything in it and created again, so it
+    holds only what this run copies. A file an earlier revision of the paper
+    left there, or one placed there by hand, does not survive. A ``figures``
+    that is a symbolic link stops the run, since the removal follows no link.
+
+    Raises ValueError, before removing anything, when ``figures/`` and
+    ``source_dir`` overlap: the removal would delete the source.
 
     Only top-level figures are copied. Recursing is tempting but unsafe:
     the markdown post-processor rewrites all image references to
@@ -384,7 +398,17 @@ def copy_figures(source_dir: Path, output_dir: Path):
     rewriter, which is out of scope here.
     """
     figures_dir = output_dir / "figures"
-    figures_dir.mkdir(exist_ok=True)
+    if _dirs_overlap(figures_dir, source_dir):
+        raise ValueError(
+            f"{figures_dir} overlaps the source directory {source_dir}; "
+            "replacing it would delete source files"
+        )
+    # No ignore_errors: a removal that fails must not leave an earlier
+    # revision's files beside this run's. is_symlink() sends a dangling link to
+    # rmtree too, which refuses any link.
+    if figures_dir.is_symlink() or figures_dir.exists():
+        shutil.rmtree(figures_dir)
+    figures_dir.mkdir()
 
     # Common image extensions
     image_exts = [".png", ".jpg", ".jpeg", ".pdf", ".eps"]
@@ -412,7 +436,8 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output Markdown file (default: papers/SAFE_ID/SAFE_ID.md)",
+        help="Output Markdown file (default: papers/SAFE_ID/SAFE_ID.md). "
+        "The figures/ directory beside it is replaced.",
     )
     parser.add_argument(
         "--tex-file",
@@ -452,6 +477,23 @@ def main():
     if not source_dir.exists():
         print(f"Error: Source directory not found: {source_dir}")
         sys.exit(1)
+
+    # copy_figures replaces figures/, so it must not overlap what is converted.
+    # An auto-detected main .tex sits in source_dir; an explicit one may not,
+    # and pandoc reads the files beside it.
+    figures_dir = output_md.parent / "figures"
+    input_dirs = [source_dir]
+    if args.tex_file:
+        input_dirs.append(args.tex_file.parent)
+    for input_dir in input_dirs:
+        if _dirs_overlap(figures_dir, input_dir):
+            print(
+                f"Error: {figures_dir} is replaced on every conversion, and it "
+                f"overlaps {input_dir}, which holds the files to convert. "
+                "Choose an --output outside that directory.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Find main .tex file
     if args.tex_file:

@@ -6,6 +6,7 @@ Handles fetching and conversion automatically.
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -177,6 +178,15 @@ def main():
             if rc != 0:
                 print("\n✗ PDF conversion failed")
                 sys.exit(1)
+
+            # The document just written links to no figure, so nothing refers
+            # to what an earlier LaTeX conversion copied here. Removed the way
+            # copy_figures does it: errors stop the run, and a symbolic link,
+            # dangling or not, reaches rmtree and is refused.
+            figures_dir = paper_dir / "figures"
+            if figures_dir.is_symlink() or figures_dir.exists():
+                shutil.rmtree(figures_dir)
+                print(f"Removed {figures_dir}: the PDF conversion links to no figure")
 
     print()
     print("=" * 60)
