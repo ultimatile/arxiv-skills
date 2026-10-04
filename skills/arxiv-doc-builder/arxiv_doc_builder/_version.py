@@ -17,17 +17,14 @@ Note the distribution name passed to ``metadata.version`` is the hyphenated
 ``arxiv-doc-builder`` (``pyproject``'s ``[project] name``), not the underscored
 import name ``arxiv_doc_builder`` — they intentionally differ.
 
-Every failure degrades to ``"unknown"`` rather than propagating, so
-``read_version`` lets no ``Exception`` out and returns nothing but a ``str``,
-regardless of how the code was reached. An unexpected metadata-resolution
-error (corrupt installed distribution) is absorbed, and so is any exception
-from locating, reading or parsing the fallback pyproject, or from looking up
-``[project] version`` in it. A resolved value that is not a string is
-replaced by ``"unknown"`` as well: a ``[project] version`` written as a TOML
-number, or the ``None`` that ``importlib.metadata.version`` was observed to
-return, on Python 3.11, 3.13 and 3.14, for a distribution with no ``Version``
-field.
-``tomllib`` is always available because ``requires-python`` is ``>=3.11``.
+Every failure degrades to ``"unknown"``: ``read_version`` lets no
+``Exception`` out and returns only a ``str``. That covers an unexpected
+metadata error, any exception from locating, reading or parsing the fallback
+pyproject or looking up its ``[project] version``, and a value that is not a
+string (a TOML number, or the ``None`` that ``importlib.metadata.version``
+returned on Python 3.11, 3.13 and 3.14 for a distribution with no ``Version``
+field). The top-level ``import tomllib`` is left unguarded because
+``requires-python`` is ``>=3.11``.
 """
 
 import tomllib
