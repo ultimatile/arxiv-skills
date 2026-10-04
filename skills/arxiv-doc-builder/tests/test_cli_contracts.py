@@ -10,10 +10,15 @@ Promoted from review findings that revealed untested specifications:
     source-selection problem.
 
   - Default-path safe-normalization: when a CLI builds a default
-    "papers/<id>/..." path for a legacy ID like hep-th/9901001, the
+    "<id>/..." path for a legacy ID like hep-th/9901001, the
     slash must be normalized away by safe_arxiv_id before becoming a
-    Path component, otherwise the resulting tree (papers/hep-th/9901001/...)
-    does not match the fetch-side cache (papers/hep-th_9901001/).
+    Path component, otherwise the resulting tree (hep-th/9901001/...)
+    does not match the fetch-side cache (hep-th_9901001/).
+
+  - Default-path root: a script run with no output option resolves its
+    default against the working directory, with no directory in between,
+    which is where convert-paper puts the paper's directory by default.
+    fetch_paper's side of this is in test_fetch_paper_main.py.
 """
 
 import subprocess
@@ -22,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from arxiv_doc_builder import convert_latex
 from conftest import PACKAGE_DIR
 
 
@@ -57,9 +63,11 @@ def test_convert_latex_default_path_normalizes_slash_for_legacy_id(tmp_path):
     # observing the "source directory not found" diagnostic, which
     # echoes the constructed path.
     result = _run([str(PACKAGE_DIR / "convert_latex.py"), "hep-th/9901001"], tmp_path)
-    # Expected failure: no papers/ tree exists.
+    # Expected failure: the working directory holds no source tree.
     assert result.returncode != 0
     combined = result.stdout + result.stderr
+    # The whole default, so a directory put in front of it shows up too.
+    assert f"not found: {Path('hep-th_9901001') / 'source'}\n" in combined, combined
     assert "hep-th_9901001" in combined, (
         "Expected the safe-normalized legacy-ID directory in the path "
         "message, so that convert_latex matches the fetch-side cache.\n"
@@ -72,6 +80,77 @@ def test_convert_latex_default_path_normalizes_slash_for_legacy_id(tmp_path):
         "safe_arxiv_id must run before Path construction.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+def test_convert_latex_defaults_are_the_paper_directory_under_cwd(
+    monkeypatch, tmp_path
+):
+    # Observed without pandoc: main() checks for it, converts, post-processes
+    # and copies figures, and each of those is replaced, so what is left is the
+    # two paths main() builds when neither --source-dir nor --output is given.
+    monkeypatch.chdir(tmp_path)
+    source = Path("hep-th_9901001") / "source"
+    source.mkdir(parents=True)
+    (source / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+    received = {}
+    monkeypatch.setattr(
+        convert_latex.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(convert_latex, "convert_with_pandoc", lambda tex, out: True)
+    monkeypatch.setattr(
+        convert_latex,
+        "post_process_markdown",
+        lambda md_file, *args, **kwargs: received.update(markdown=md_file),
+    )
+    monkeypatch.setattr(
+        convert_latex,
+        "copy_figures",
+        lambda source_dir, output_dir: received.update(source=source_dir),
+    )
+    monkeypatch.setattr(sys, "argv", ["convert_latex.py", "hep-th/9901001"])
+
+    convert_latex.main()
+
+    assert received == {
+        "markdown": Path("hep-th_9901001") / "hep-th_9901001.md",
+        "source": source,
+    }
+
+
+@pytest.mark.parametrize(
+    ("module", "function", "subdirectory"),
+    [
+        ("convert_pdf_with_vision", "convert_pdf_to_images", "images"),
+        ("convert_pdf_split_columns", "convert_pdf_split_columns", "images_split"),
+    ],
+)
+def test_image_script_default_directory_is_named_after_the_pdf_under_cwd(
+    module, function, subdirectory, tmp_path
+):
+    # The PDF sits in a subdirectory and its name has two dots, so a default
+    # built from the PDF's directory, or from a stem cut at the first dot, would
+    # print a different path. Each script imports its converter by name, so the
+    # stand-in replaces the name bound in the script module.
+    pdf = tmp_path / "sub" / "2409.03108.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"%PDF-stub")
+    program = f"""
+import sys
+sys.path.insert(0, {str(PACKAGE_DIR)!r})
+import {module}
+
+def record(pdf_path, output_dir, *args, **kwargs):
+    print(output_dir)
+
+{module}.{function} = record
+sys.argv = [{module + ".py"!r}, "sub/2409.03108.pdf"]
+{module}.main()
+"""
+    result = _run(["-c", program], tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(Path("2409.03108") / subdirectory)
 
 
 @pytest.mark.parametrize(

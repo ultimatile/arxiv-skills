@@ -406,13 +406,13 @@ def main():
     parser.add_argument(
         "--source-dir",
         type=Path,
-        help="LaTeX source directory (default: papers/SAFE_ID/source, "
+        help="LaTeX source directory (default: SAFE_ID/source, "
         "SAFE_ID being arxiv_id with '/' replaced by '_')",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output Markdown file (default: papers/SAFE_ID/SAFE_ID.md)",
+        help="Output Markdown file (default: SAFE_ID/SAFE_ID.md)",
     )
     parser.add_argument(
         "--tex-file",
@@ -434,19 +434,19 @@ def main():
 
     # Run safe_arxiv_id through the default paths so legacy IDs like
     # "hep-th/9901001" don't smuggle a slash into the directory / filename
-    # (which would produce papers/hep-th/9901001/... and mismatch the
-    # fetch-side cache at papers/hep-th_9901001/).
+    # (which would produce hep-th/9901001/... and mismatch the
+    # fetch-side cache at hep-th_9901001/).
     safe_id = safe_arxiv_id(args.arxiv_id)
 
     if args.source_dir:
         source_dir = args.source_dir
     else:
-        source_dir = Path("papers") / safe_id / "source"
+        source_dir = Path(safe_id) / "source"
 
     if args.output:
         output_md = args.output
     else:
-        output_md = Path("papers") / safe_id / f"{safe_id}.md"
+        output_md = Path(safe_id) / f"{safe_id}.md"
 
     # Check source directory exists
     if not source_dir.exists():

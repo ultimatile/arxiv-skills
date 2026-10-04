@@ -35,7 +35,10 @@ def main():
     )
     parser.add_argument("pdf_path", type=Path, help="Path to PDF file")
     parser.add_argument(
-        "-o", "--output-dir", type=Path, help="Output directory for images"
+        "-o",
+        "--output-dir",
+        type=Path,
+        help="Output directory for images (default: PDFNAME/images_split)",
     )
     parser.add_argument(
         "--dpi",
@@ -61,7 +64,7 @@ def main():
         output_dir = args.output_dir
     else:
         paper_name = args.pdf_path.stem
-        output_dir = Path("papers") / paper_name / "images_split"
+        output_dir = Path(paper_name) / "images_split"
 
     convert_pdf_split_columns(args.pdf_path, output_dir, args.dpi, args.columns)
 

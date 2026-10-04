@@ -29,12 +29,26 @@ def run_main(monkeypatch, tmp_path):
     ``main()`` makes itself, or from a handoff file written with ``handoff``, in
     which case a lookup would fail the test. Each download reports
     ``has_source`` / ``has_pdf``, or runs ``download`` when one is given, so a
-    caller can see what was asked for. Returns the paper directory the run
-    wrote into, so a caller can check whether the sidecar landed.
+    caller can see what was asked for. ``output_dir=False`` leaves
+    ``--output-dir`` off the command line and runs with ``tmp_path`` as the
+    working directory. Returns the paper directory the run wrote into, so a
+    caller can check whether the sidecar landed.
     """
 
-    def run(*, probe=None, handoff=None, has_source=True, has_pdf=True, download=None):
-        argv = ["fetch_paper.py", "2409.03108", "--output-dir", str(tmp_path)]
+    def run(
+        *,
+        probe=None,
+        handoff=None,
+        has_source=True,
+        has_pdf=True,
+        download=None,
+        output_dir=True,
+    ):
+        argv = ["fetch_paper.py", "2409.03108"]
+        if output_dir:
+            argv += ["--output-dir", str(tmp_path)]
+        else:
+            monkeypatch.chdir(tmp_path)
         if handoff is not None:
             handoff_file = tmp_path / "handoff.json"
             write_metadata_handoff(handoff_file, "2409.03108", handoff)
@@ -175,3 +189,13 @@ def test_a_handed_over_failure_is_quoted_in_the_warning(run_main, capsys, failed
     paper_dir = run_main(handoff=failed_probe, has_source=True, has_pdf=False)
     assert not (paper_dir / fetch_paper._METADATA_FILE).exists()
     assert PROBE_ERROR in capsys.readouterr().err
+
+
+def test_without_output_dir_the_paper_directory_is_under_the_working_directory(
+    run_main, tmp_path, probe_with_version
+):
+    # convert-paper's own default, so a fetch run by hand beside it writes into
+    # the directory convert-paper reads.
+    paper_dir = run_main(probe=probe_with_version, output_dir=False)
+    assert fetch_paper._read_cached_version(paper_dir) == PROBE_VERSION
+    assert [entry.name for entry in tmp_path.iterdir()] == ["2409.03108"]
