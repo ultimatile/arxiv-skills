@@ -9,10 +9,12 @@ Lightweight scripts for querying the arXiv API directly via `arxiv.py`.
 
 ## Scripts
 
+In the commands below, `SKILL_DIR` is a placeholder, not a shell variable: replace it with the absolute path of the directory this SKILL.md is in. Keep the double quotes around the path, so a path containing spaces stays one argument. `--no-project` keeps uv from building the environment from a project in your working directory. The commands then run from any working directory.
+
 ### Get Journal DOI from arXiv ID
 
 ```bash
-uv run --with arxiv scripts/get_doi.py <arxiv_id>
+uv run --no-project --with arxiv "SKILL_DIR/scripts/get_doi.py" <arxiv_id>
 ```
 
 - Returns the journal DOI if available (exit 0), or exits with error (exit 1) if not found
@@ -22,7 +24,7 @@ uv run --with arxiv scripts/get_doi.py <arxiv_id>
 ### Search arXiv and Get IDs
 
 ```bash
-uv run --with arxiv scripts/search_id.py <query> [max_results]
+uv run --no-project --with arxiv "SKILL_DIR/scripts/search_id.py" <query> [max_results]
 ```
 
 - Searches the arXiv API directly (no local database)
