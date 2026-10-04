@@ -51,12 +51,13 @@ def main():
     # action="version" prints and exits before any other parsing, so
     # `convert-paper --version` works without a positional arxiv_id.
     # read_version() runs at parser-build time, but it is a cheap metadata
-    # / TOML read.
+    # / TOML read. argparse %-formats the whole version string, so each "%"
+    # in the resolved version is doubled to come out literally.
     parser.add_argument(
         "-V",
         "--version",
         action="version",
-        version=f"%(prog)s {read_version()}",
+        version=f"%(prog)s {read_version().replace('%', '%%')}",
     )
     parser.add_argument("arxiv_id", help="arXiv ID (e.g., 2409.03108)")
     parser.add_argument(

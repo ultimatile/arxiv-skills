@@ -17,12 +17,14 @@ Note the distribution name passed to ``metadata.version`` is the hyphenated
 ``arxiv-doc-builder`` (``pyproject``'s ``[project] name``), not the underscored
 import name ``arxiv_doc_builder`` — they intentionally differ.
 
-Every failure degrades to ``"unknown"`` rather than propagating, so
-``--version`` never raises regardless of how the code was reached: an
-unexpected metadata-resolution error (corrupt installed distribution) and
-every pyproject fallback failure (missing file, parse error, absent key) are
-all absorbed. ``tomllib`` is always available because ``requires-python`` is
-``>=3.11``.
+Every failure degrades to ``"unknown"``: ``read_version`` lets no
+``Exception`` out and returns only a ``str``. That covers an unexpected
+metadata error, any exception from locating, reading or parsing the fallback
+pyproject or looking up its ``[project] version``, and a value that is not a
+string (a TOML number, or the ``None`` that ``importlib.metadata.version``
+returned on Python 3.11, 3.13 and 3.14 for a distribution with no ``Version``
+field). The top-level ``import tomllib`` is left unguarded because
+``requires-python`` is ``>=3.11``.
 """
 
 import tomllib
@@ -33,34 +35,41 @@ from pathlib import Path
 # answer (see the dist-name/import-name pitfall in the design notes).
 _DIST_NAME = "arxiv-doc-builder"
 
+_UNKNOWN = "unknown"
+
 
 def read_version() -> str:
     """Return the package version, or ``"unknown"`` if unresolvable."""
-    from importlib import metadata
-
     try:
-        return metadata.version(_DIST_NAME)
-    except metadata.PackageNotFoundError:
-        # No dist-info — the common source-tree case. Fall through.
-        return _version_from_pyproject()
+        from importlib import metadata
+
+        try:
+            return _str_or_unknown(metadata.version(_DIST_NAME))
+        except metadata.PackageNotFoundError:
+            # No dist-info — the common source-tree case. Fall through.
+            return _version_from_pyproject()
     except Exception:
-        # Any other resolution failure (e.g. corrupt or unparseable
-        # installed metadata) is an unexpected state, not the "not
-        # installed" signal — degrade straight to "unknown" to honor the
-        # never-raise contract rather than trusting the pyproject fallback.
-        return "unknown"
+        # Anything else (corrupt metadata, a failed import) is not the "not
+        # installed" signal, so skip the pyproject fallback.
+        return _UNKNOWN
 
 
 def _version_from_pyproject() -> str:
     """Read ``[project] version`` from the sibling ``pyproject.toml``.
 
     Walks up from this module to the package root's parent, where the project's
-    pyproject lives. All I/O and parse failures collapse to ``"unknown"``.
+    pyproject lives. Any exception from locating, reading or parsing it, or
+    from looking up the key, and a value that is not a string, collapse to
+    ``"unknown"``.
     """
-    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
-
     try:
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         with pyproject.open("rb") as f:
-            return tomllib.load(f)["project"]["version"]
-    except (OSError, KeyError, tomllib.TOMLDecodeError):
-        return "unknown"
+            version = tomllib.load(f)["project"]["version"]
+    except Exception:
+        return _UNKNOWN
+    return _str_or_unknown(version)
+
+
+def _str_or_unknown(value: object) -> str:
+    return value if isinstance(value, str) else _UNKNOWN
