@@ -8,10 +8,13 @@ rare edge. These tests pin that behavior and the CLI contract.
 import subprocess
 import sys
 import tomllib
+from importlib import metadata
 
 import pytest
 
 from conftest import PACKAGE_DIR, SKILL_DIR
+from arxiv_doc_builder import _version as version_module
+from arxiv_doc_builder import convert_paper
 from arxiv_doc_builder._version import (
     _DIST_NAME,
     _version_from_pyproject,
@@ -24,6 +27,35 @@ _PYPROJECT = SKILL_DIR / "pyproject.toml"
 def _expected_version() -> str:
     with _PYPROJECT.open("rb") as f:
         return tomllib.load(f)["project"]["version"]
+
+
+@pytest.fixture
+def not_installed(monkeypatch):
+    """Make the distribution look uninstalled, so the pyproject fallback runs."""
+
+    def _raise(dist):
+        raise metadata.PackageNotFoundError(dist)
+
+    monkeypatch.setattr(metadata, "version", _raise)
+
+
+@pytest.fixture
+def sibling_pyproject(tmp_path, monkeypatch):
+    """Point the fallback at ``tmp_path / "pyproject.toml"``; return its writer.
+
+    The fallback locates pyproject.toml relative to the module's ``__file__``,
+    so moving that is what redirects it. Nothing is written until the returned
+    function is called, which leaves the file absent for a test that never
+    calls it.
+    """
+    monkeypatch.setattr(
+        version_module, "__file__", str(tmp_path / "pkg" / "_version.py")
+    )
+
+    def _write(content: bytes) -> None:
+        (tmp_path / "pyproject.toml").write_bytes(content)
+
+    return _write
 
 
 def test_dist_name_is_hyphenated():
@@ -62,13 +94,14 @@ def test_read_version_prefers_installed_metadata(monkeypatch):
     assert seen["dist"] == _DIST_NAME
 
 
-@pytest.mark.parametrize("fault", ["missing_key", "decode_error", "os_error"])
+@pytest.mark.parametrize(
+    "fault", ["missing_key", "decode_error", "os_error", "resolve_error"]
+)
 def test_version_from_pyproject_degrades_to_unknown(monkeypatch, fault):
-    # The never-crash contract: every caught failure mode in the fallback —
-    # missing [project].version (KeyError), malformed TOML (TOMLDecodeError),
-    # and an unreadable pyproject (OSError) — must degrade to "unknown"
-    # instead of propagating. One case per member of the caught tuple, so a
-    # future narrowing or re-raise of any arm is caught.
+    # The never-crash contract: a failure at each step of the fallback —
+    # locating the pyproject (resolve_error), opening it (OSError), parsing
+    # it (TOMLDecodeError), and looking up [project].version (KeyError) —
+    # must degrade to "unknown" instead of propagating.
     import arxiv_doc_builder._version as v
 
     if fault == "missing_key":
@@ -79,26 +112,66 @@ def test_version_from_pyproject_degrades_to_unknown(monkeypatch, fault):
             raise v.tomllib.TOMLDecodeError("malformed")
 
         monkeypatch.setattr(v.tomllib, "load", _raise_decode)
-    else:  # os_error — the pyproject exists path but cannot be opened
+    elif fault == "os_error":  # the pyproject exists path but cannot be opened
 
         def _raise_os(self, *args, **kwargs):
             raise OSError("unreadable")
 
         monkeypatch.setattr(v.Path, "open", _raise_os)
+    else:  # resolve_error — the path to the pyproject cannot be built
+
+        def _raise_resolve(self, *args, **kwargs):
+            raise RuntimeError("symlink loop")
+
+        monkeypatch.setattr(v.Path, "resolve", _raise_resolve)
 
     assert v._version_from_pyproject() == "unknown"
 
 
-def test_read_version_falls_back_when_not_installed(monkeypatch):
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(
+            b'[project]\nname = "\xff"\nversion = "1.2.3"\n', id="undecodable_byte"
+        ),
+        pytest.param(b'project = "x"\n', id="project_not_a_table"),
+        pytest.param(b"[project]\nversion = 1\n", id="integer_version"),
+        pytest.param(b"[project]\nversion = 2026-10-04\n", id="date_version"),
+        pytest.param(b"[tool]\nx = 1\n", id="no_project_table"),
+    ],
+)
+def test_malformed_pyproject_file_degrades_to_unknown(sibling_pyproject, content):
+    # Real bytes through the real parser, so the failure each file provokes
+    # is the parser's own and not one a stub chose.
+    sibling_pyproject(content)
+    assert _version_from_pyproject() == "unknown"
+
+
+def test_absent_pyproject_file_degrades_to_unknown(sibling_pyproject):
+    assert _version_from_pyproject() == "unknown"
+
+
+def test_well_formed_pyproject_file_yields_its_version(sibling_pyproject):
+    # The control for the two tests above: the value differs from the
+    # repository's own [project] version, so it can only have come from the
+    # redirected file.
+    sibling_pyproject(b'[project]\nversion = "1.2.3"\n')
+    assert _version_from_pyproject() == "1.2.3"
+
+
+def test_read_version_falls_back_when_not_installed(not_installed):
     # PackageNotFoundError (no dist-info — the source-tree run mode) must
     # route to the pyproject fallback rather than propagate.
-    from importlib import metadata
-
-    def _raise(dist):
-        raise metadata.PackageNotFoundError(dist)
-
-    monkeypatch.setattr(metadata, "version", _raise)
     assert read_version() == _expected_version()
+
+
+def test_read_version_degrades_to_unknown_on_malformed_fallback_file(
+    not_installed, sibling_pyproject
+):
+    # The route --version takes from a checkout: not installed, then a
+    # pyproject the parser rejects.
+    sibling_pyproject(b'[project]\nname = "\xff"\nversion = "1.2.3"\n')
+    assert read_version() == "unknown"
 
 
 def test_read_version_degrades_to_unknown_on_corrupt_metadata(monkeypatch):
@@ -113,6 +186,25 @@ def test_read_version_degrades_to_unknown_on_corrupt_metadata(monkeypatch):
 
     monkeypatch.setattr(metadata, "version", _raise)
     assert read_version() == "unknown"
+
+
+def test_read_version_degrades_to_unknown_on_non_string_metadata(monkeypatch):
+    # metadata.version returns None, without raising, for a distribution
+    # whose METADATA carries no Version field.
+    monkeypatch.setattr(metadata, "version", lambda dist: None)
+    assert read_version() == "unknown"
+
+
+@pytest.mark.parametrize("version", ["1%", "%(prog)s"])
+def test_cli_version_prints_percent_signs_literally(monkeypatch, capsys, version):
+    # argparse %-formats the whole version string, so an unescaped "%" in the
+    # resolved version either raises ("1%") or is expanded ("%(prog)s").
+    monkeypatch.setattr(convert_paper, "read_version", lambda: version)
+    monkeypatch.setattr(sys, "argv", ["convert_paper.py", "--version"])
+    with pytest.raises(SystemExit) as exit_info:
+        convert_paper.main()
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out == f"convert_paper.py {version}\n"
 
 
 def test_cli_version_flag_emits_version():
