@@ -14,11 +14,6 @@ Promoted from review findings that revealed untested specifications:
     slash must be normalized away by safe_arxiv_id before becoming a
     Path component, otherwise the resulting tree (hep-th/9901001/...)
     does not match the fetch-side cache (hep-th_9901001/).
-
-  - Default-path root: a script run with no output option resolves its
-    default against the working directory, with no directory in between,
-    which is where convert-paper puts the paper's directory by default.
-    fetch_paper's side of this is in test_fetch_paper_main.py.
 """
 
 import subprocess
@@ -86,8 +81,8 @@ def test_convert_latex_defaults_are_the_paper_directory_under_cwd(
     monkeypatch, tmp_path
 ):
     # Observed without pandoc: main() checks for it, converts, post-processes
-    # and copies figures, and each of those is replaced, so what is left is the
-    # two paths main() builds when neither --source-dir nor --output is given.
+    # and copies figures, and each of those is replaced. The last two record
+    # the paths main() builds when neither --source-dir nor --output is given.
     monkeypatch.chdir(tmp_path)
     source = Path("hep-th_9901001") / "source"
     source.mkdir(parents=True)

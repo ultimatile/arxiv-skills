@@ -3,6 +3,10 @@
 `test_version_drift.py` covers the parts. `main()` holds only their
 composition, and an inverted operand there passes every test of either part.
 These drive `main()` with the lookup and both downloads replaced.
+
+`test_without_output_dir_the_paper_directory_is_under_the_working_directory`
+uses the same fixture for a different question: where `main()` writes when
+`--output-dir` is left off.
 """
 
 import inspect
