@@ -52,12 +52,8 @@ def read_version() -> str:
             # No dist-info — the common source-tree case. Fall through.
             return _version_from_pyproject()
     except Exception:
-        # Any other resolution failure (e.g. corrupt or unparseable
-        # installed metadata) is an unexpected state, not the "not
-        # installed" signal — degrade straight to "unknown" rather than
-        # trusting the pyproject fallback.
-        # The import is inside the outer try as well, so an import failure
-        # degrades the same way.
+        # Anything else (corrupt metadata, a failed import) is not the "not
+        # installed" signal, so skip the pyproject fallback.
         return _UNKNOWN
 
 
