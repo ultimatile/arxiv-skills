@@ -51,10 +51,8 @@ def not_installed(monkeypatch):
 def sibling_pyproject(tmp_path, monkeypatch):
     """Point the fallback at ``tmp_path / "pyproject.toml"``; return its writer.
 
-    The fallback locates pyproject.toml relative to the module's ``__file__``,
-    so moving that is what redirects it. Nothing is written until the returned
-    function is called, which leaves the file absent for a test that never
-    calls it.
+    The fallback finds pyproject.toml from the module's ``__file__``, so that
+    is what gets patched. Until the writer is called, the file does not exist.
     """
     monkeypatch.setattr(
         version_module, "__file__", str(tmp_path / "pkg" / "_version.py")
