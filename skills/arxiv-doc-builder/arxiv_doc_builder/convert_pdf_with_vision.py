@@ -37,7 +37,7 @@ def main():
         "-o",
         "--output-dir",
         type=Path,
-        help="Output directory for images (default: papers/PDFNAME/images)",
+        help="Output directory for images (default: PDFNAME/images)",
     )
     parser.add_argument(
         "--dpi", type=int, default=300, help="Image resolution in DPI (default: 300)"
@@ -62,7 +62,16 @@ def main():
         output_dir = args.output_dir
     else:
         paper_name = args.pdf_path.stem
-        output_dir = Path("papers") / paper_name / "images"
+        output_dir = Path(paper_name) / "images"
+        # A PDF with no extension, run from its own directory, has its own
+        # name as the stem, and no directory can be made under a file.
+        stem_path = Path(paper_name)
+        if not stem_path.is_dir() and (stem_path.exists() or stem_path.is_symlink()):
+            print(
+                f"Error: the default output directory {output_dir} is under "
+                f"{paper_name}, which is not a directory. Pass -o DIR."
+            )
+            sys.exit(1)
 
     convert_pdf_to_images(
         args.pdf_path,
