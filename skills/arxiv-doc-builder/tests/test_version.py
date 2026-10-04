@@ -5,6 +5,7 @@ fallback path — parsing pyproject.toml — is the *primary* path here, not a
 rare edge. These tests pin that behavior and the CLI contract.
 """
 
+import importlib
 import subprocess
 import sys
 import tomllib
@@ -29,14 +30,21 @@ def _expected_version() -> str:
         return tomllib.load(f)["project"]["version"]
 
 
+def _raiser(error: Exception):
+    """Return a stand-in callable that raises ``error`` whatever it is passed."""
+
+    def _raise(*args, **kwargs):
+        raise error
+
+    return _raise
+
+
 @pytest.fixture
 def not_installed(monkeypatch):
     """Make the distribution look uninstalled, so the pyproject fallback runs."""
-
-    def _raise(dist):
-        raise metadata.PackageNotFoundError(dist)
-
-    monkeypatch.setattr(metadata, "version", _raise)
+    monkeypatch.setattr(
+        metadata, "version", _raiser(metadata.PackageNotFoundError(_DIST_NAME))
+    )
 
 
 @pytest.fixture
@@ -81,8 +89,6 @@ def test_read_version_prefers_installed_metadata(monkeypatch):
     # (the installed-CLI SSOT) and query it under the hyphenated dist name —
     # NOT silently fall through to the pyproject parse. The sentinel differs
     # from the pyproject version so a fall-through would fail the assertion.
-    from importlib import metadata
-
     seen = {}
 
     def _fake_version(dist):
@@ -95,37 +101,35 @@ def test_read_version_prefers_installed_metadata(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "fault", ["missing_key", "decode_error", "os_error", "resolve_error"]
+    ("owner", "attr", "stand_in"),
+    [
+        # [project].version is absent, so the lookup raises KeyError
+        pytest.param(tomllib, "load", lambda f: {}, id="missing_key"),
+        pytest.param(
+            tomllib,
+            "load",
+            _raiser(tomllib.TOMLDecodeError("malformed")),
+            id="decode_error",
+        ),
+        # the pyproject path exists but cannot be opened
+        pytest.param(
+            version_module.Path, "open", _raiser(OSError("unreadable")), id="os_error"
+        ),
+        # the path to the pyproject cannot be built
+        pytest.param(
+            version_module.Path,
+            "resolve",
+            _raiser(RuntimeError("symlink loop")),
+            id="resolve_error",
+        ),
+    ],
 )
-def test_version_from_pyproject_degrades_to_unknown(monkeypatch, fault):
-    # The never-crash contract: a failure at each step of the fallback —
-    # locating the pyproject (resolve_error), opening it (OSError), parsing
-    # it (TOMLDecodeError), and looking up [project].version (KeyError) —
-    # must degrade to "unknown" instead of propagating.
-    import arxiv_doc_builder._version as v
-
-    if fault == "missing_key":
-        monkeypatch.setattr(v.tomllib, "load", lambda f: {})
-    elif fault == "decode_error":
-
-        def _raise_decode(f):
-            raise v.tomllib.TOMLDecodeError("malformed")
-
-        monkeypatch.setattr(v.tomllib, "load", _raise_decode)
-    elif fault == "os_error":  # the pyproject exists path but cannot be opened
-
-        def _raise_os(self, *args, **kwargs):
-            raise OSError("unreadable")
-
-        monkeypatch.setattr(v.Path, "open", _raise_os)
-    else:  # resolve_error — the path to the pyproject cannot be built
-
-        def _raise_resolve(self, *args, **kwargs):
-            raise RuntimeError("symlink loop")
-
-        monkeypatch.setattr(v.Path, "resolve", _raise_resolve)
-
-    assert v._version_from_pyproject() == "unknown"
+def test_version_from_pyproject_degrades_to_unknown(monkeypatch, owner, attr, stand_in):
+    # A failure at each step of the fallback — locating the pyproject,
+    # opening it, parsing it, and looking up [project].version — must degrade
+    # to "unknown" instead of propagating.
+    monkeypatch.setattr(owner, attr, stand_in)
+    assert _version_from_pyproject() == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -141,8 +145,8 @@ def test_version_from_pyproject_degrades_to_unknown(monkeypatch, fault):
     ],
 )
 def test_malformed_pyproject_file_degrades_to_unknown(sibling_pyproject, content):
-    # Real bytes through the real parser, so the failure each file provokes
-    # is the parser's own and not one a stub chose.
+    # Real files through the real read, parse and lookup, so what each file
+    # provokes is not an outcome a stub chose.
     sibling_pyproject(content)
     assert _version_from_pyproject() == "unknown"
 
@@ -175,23 +179,29 @@ def test_read_version_degrades_to_unknown_on_malformed_fallback_file(
 
 
 def test_read_version_degrades_to_unknown_on_corrupt_metadata(monkeypatch):
-    # The never-raise contract must hold for unexpected metadata failures,
-    # not just PackageNotFoundError: a corrupt/unparseable installed
-    # distribution makes metadata.version raise a generic error, which must
-    # degrade to "unknown" rather than propagate.
-    from importlib import metadata
-
-    def _raise(dist):
-        raise RuntimeError("corrupt metadata")
-
-    monkeypatch.setattr(metadata, "version", _raise)
+    # Unexpected metadata failures must degrade too, not just
+    # PackageNotFoundError: a corrupt/unparseable installed distribution
+    # makes metadata.version raise a generic error, which must degrade to
+    # "unknown" rather than propagate.
+    monkeypatch.setattr(metadata, "version", _raiser(RuntimeError("corrupt metadata")))
     assert read_version() == "unknown"
 
 
 def test_read_version_degrades_to_unknown_on_non_string_metadata(monkeypatch):
-    # metadata.version returns None, without raising, for a distribution
-    # whose METADATA carries no Version field.
+    # None is what metadata.version was observed to return, without raising,
+    # for a distribution whose METADATA carries no Version field.
     monkeypatch.setattr(metadata, "version", lambda dist: None)
+    assert read_version() == "unknown"
+
+
+def test_read_version_degrades_to_unknown_when_metadata_cannot_be_imported(
+    monkeypatch,
+):
+    # A None entry in sys.modules makes the import raise ImportError. The
+    # attribute is removed first: `from importlib import metadata` would
+    # otherwise pick the already-imported submodule off the package.
+    monkeypatch.delattr(importlib, "metadata")
+    monkeypatch.setitem(sys.modules, "importlib.metadata", None)
     assert read_version() == "unknown"
 
 
