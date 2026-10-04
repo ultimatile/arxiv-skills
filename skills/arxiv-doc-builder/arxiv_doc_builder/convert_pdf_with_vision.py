@@ -63,6 +63,15 @@ def main():
     else:
         paper_name = args.pdf_path.stem
         output_dir = Path(paper_name) / "images"
+        # A PDF with no extension, run from its own directory, has its own
+        # name as the stem, and no directory can be made under a file.
+        stem_path = Path(paper_name)
+        if not stem_path.is_dir() and (stem_path.exists() or stem_path.is_symlink()):
+            print(
+                f"Error: the default output directory {output_dir} is under "
+                f"{paper_name}, which is not a directory. Pass -o DIR."
+            )
+            sys.exit(1)
 
     convert_pdf_to_images(
         args.pdf_path,

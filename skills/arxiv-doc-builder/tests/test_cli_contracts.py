@@ -121,15 +121,20 @@ def test_convert_latex_defaults_are_the_paper_directory_under_cwd(
         ("convert_pdf_split_columns", "convert_pdf_split_columns", "images_split"),
     ],
 )
+@pytest.mark.parametrize(
+    "pdf_location", ["sub/2409.03108.pdf", "2409.03108/pdf/2409.03108.pdf"]
+)
 def test_image_script_default_directory_is_named_after_the_pdf_under_cwd(
-    module, function, subdirectory, tmp_path
+    module, function, subdirectory, pdf_location, tmp_path
 ):
-    # The PDF sits in a subdirectory and its name has two dots, so a default
-    # built from the PDF's directory, or from a stem cut at the first dot, would
-    # print a different path. Each script imports its converter by name, so the
-    # stand-in replaces the name bound in the script module.
-    pdf = tmp_path / "sub" / "2409.03108.pdf"
-    pdf.parent.mkdir()
+    # The PDF's name has two dots and it sits below the working directory, so a
+    # default built from the PDF's directory, or from a stem cut at the first
+    # dot, would print a different path. The second location is where
+    # convert-paper saves the PDF, which makes the stem an existing directory.
+    # Each script imports its converter by name, so the stand-in replaces the
+    # name bound in the script module.
+    pdf = tmp_path / pdf_location
+    pdf.parent.mkdir(parents=True)
     pdf.write_bytes(b"%PDF-stub")
     program = f"""
 import sys
@@ -140,12 +145,38 @@ def record(pdf_path, output_dir, *args, **kwargs):
     print(output_dir)
 
 {module}.{function} = record
-sys.argv = [{module + ".py"!r}, "sub/2409.03108.pdf"]
+sys.argv = [{module + ".py"!r}, {pdf_location!r}]
 {module}.main()
 """
     result = _run(["-c", program], tmp_path)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(Path("2409.03108") / subdirectory)
+
+
+@pytest.mark.parametrize(
+    "script", ["convert_pdf_with_vision.py", "convert_pdf_split_columns.py"]
+)
+@pytest.mark.parametrize("obstacle", ["the pdf itself", "a dangling symlink"])
+def test_image_script_refuses_a_default_directory_under_a_non_directory(
+    script, obstacle, tmp_path
+):
+    # A PDF with no extension is its own stem, so run from its directory the
+    # default would be a directory under the PDF itself. A symlink to nothing
+    # at the stem blocks the directory the same way while not existing as a
+    # file. The script says so and names the option, before the converter is
+    # reached.
+    if obstacle == "the pdf itself":
+        pdf_location = "9901001"
+    else:
+        pdf_location = "sub/9901001.pdf"
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "9901001").symlink_to("missing")
+    (tmp_path / pdf_location).write_bytes(b"%PDF-stub")
+    result = _run([str(PACKAGE_DIR / script), pdf_location], tmp_path)
+    combined = result.stdout + result.stderr
+    assert result.returncode == 1, combined
+    assert "-o DIR" in combined
+    assert "Traceback" not in combined
 
 
 @pytest.mark.parametrize(
