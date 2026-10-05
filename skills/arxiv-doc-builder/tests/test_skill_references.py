@@ -7,15 +7,15 @@ agent with the condition and no procedure. The test scans SKILL.md, every
 and messages alike), and the evaluated remedy `convert_latex.py` prints when
 it kills a runaway pandoc.
 
-The converse holds for the files. Every `.md` file in references/ is named by
-SKILL.md or by a reference file that is itself reached from SKILL.md, so none
-sits where no pointer leads. That check reads the text only: it shows a
-pointer exists, not that an agent follows it.
-
 The same holds for the package scripts the agent is told to run. When a
 command in SKILL.md or references/ names a script, that script exists, and
 the command names it by a path the agent can run from its own working
 directory.
+
+For the reference files the converse holds too. Every `.md` file in
+references/ is named by SKILL.md or by a reference file that is itself reached
+from SKILL.md, so none sits where no pointer leads. That check reads the text
+only: it shows a pointer exists, not that an agent follows it.
 """
 
 import re
@@ -103,7 +103,9 @@ def _unreachable_references(skill_md: str, references: dict[str, str]) -> list[s
 def test_unreachable_references_follows_pointers_between_files() -> None:
     references = {
         "references/direct.md": "Then read `references/chained.md`.",
-        "references/chained.md": "Go back to `references/direct.md`.",
+        "references/chained.md": "Go back to `references/direct.md`, or on to "
+        "`references/deep.md`.",
+        "references/deep.md": "Nothing further.",
         "references/orphan-a.md": "See `references/orphan-b.md`.",
         "references/orphan-b.md": "See `references/orphan-a.md`.",
     }
