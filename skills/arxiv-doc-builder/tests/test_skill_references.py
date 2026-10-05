@@ -11,6 +11,11 @@ The same holds for the package scripts the agent is told to run. When a
 command in SKILL.md or references/ names a script, that script exists, and
 the command names it by a path the agent can run from its own working
 directory.
+
+For the reference files the converse holds too. Every `.md` file in
+references/ is named by SKILL.md or by a reference file that is itself reached
+from SKILL.md, so none sits where no pointer leads. That check reads the text
+only: it shows a pointer exists, not that an agent follows it.
 """
 
 import re
@@ -23,7 +28,7 @@ from conftest import PACKAGE_DIR, SKILL_DIR, read_skill_md
 _REFERENCE = re.compile(r"references/[\w.-]+\.md")
 
 # The procedures SKILL.md sends the agent to when a situation it names holds.
-# Each must be reachable from SKILL.md, since SKILL.md is what the agent has
+# Each must be named in SKILL.md itself, since SKILL.md is what the agent has
 # loaded.
 _CONDITIONAL_REFERENCES = {
     "references/multiple-documentclass.md",
@@ -77,6 +82,46 @@ def test_runaway_remedy_names_a_reference_file() -> None:
     assert "references/pandoc-runaway.md" in _REFERENCE.findall(
         convert_latex._RUNAWAY_REMEDY
     )
+
+
+def _unreachable_references(skill_md: str, references: dict[str, str]) -> list[str]:
+    """The reference files that no chain of pointers starting in SKILL.md names.
+
+    ``references`` maps each file's ``references/<name>.md`` path to its text.
+    A pointer at a path with no file leads nowhere and is skipped; the
+    existence check above is what reports it.
+    """
+    reached: set[str] = set()
+    pending = set(_REFERENCE.findall(skill_md))
+    while pending:
+        ref = pending.pop()
+        reached.add(ref)
+        pending |= set(_REFERENCE.findall(references.get(ref, ""))) - reached
+    return sorted(set(references) - reached)
+
+
+def test_unreachable_references_follows_pointers_between_files() -> None:
+    references = {
+        "references/direct.md": "Then read `references/chained.md`.",
+        "references/chained.md": "Go back to `references/direct.md`, or on to "
+        "`references/deep.md`.",
+        "references/deep.md": "Nothing further.",
+        "references/orphan-a.md": "See `references/orphan-b.md`.",
+        "references/orphan-b.md": "See `references/orphan-a.md`.",
+    }
+    skill_md = "Read `references/direct.md`, or `references/missing.md`."
+    assert _unreachable_references(skill_md, references) == [
+        "references/orphan-a.md",
+        "references/orphan-b.md",
+    ]
+
+
+def test_every_reference_file_is_reachable_from_skill_md() -> None:
+    references = {
+        name: text for name, text in _markdown_sources() if name != "SKILL.md"
+    }
+    unreachable = _unreachable_references(read_skill_md(), references)
+    assert not unreachable, f"no pointer chain from SKILL.md names: {unreachable}"
 
 
 # A command the agent runs names a package script by a path starting at the
