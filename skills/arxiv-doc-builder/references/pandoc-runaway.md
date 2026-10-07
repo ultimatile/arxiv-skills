@@ -32,13 +32,15 @@ TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument);
 
 ## Fix: strip the style-only `.sty`
 
-Removing a `.sty` is not a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders better from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched.
+`{SAFE_ID}` is the name of the paper's directory, as SKILL.md's Procedure step 1 defines it. Paths below start with it, so they resolve from the directory `convert-paper` wrote the paper's directory into.
 
-1. Confirm the `.sty` defines no content macro used in the body (e.g. `\newcommand{\co}{ACME}`). If it does, stripping would lose that text, so copy that macro's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source; the `.sty` is still stripped in step 2.
-2. Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`:
+The file to strip is a `.sty` file under `{SAFE_ID}/source/` that holds a redefinition like the one above: a `\renewcommand` or `\def` whose body uses the command it defines. Do steps 1 and 2 for each such file. When no `.sty` file under `{SAFE_ID}/source/` holds one, the runaway has a cause this file does not cover: stop following this file and tell the user that. If `{SAFE_ID}/pdf/{SAFE_ID}.pdf` exists, the paper can still be converted from it, as `references/pdf-conversion.md` describes.
+
+1. Find the file's content macros: the commands it defines that the body of the paper uses and whose definition is text or math of the paper (e.g. `\newcommand{\co}{ACME}`). Stripping the file would lose that text, so copy each one's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source. Copy in the same way each command a copied definition uses, when the file introduces that command. A command the file only redefines, such as `\section` or `\large`, is not copied: pandoc renders it without the file. When the file has no content macro, this step changes nothing.
+2. Rename the file by appending `.bak`, so that pandoc no longer reads it. For `arxiv.sty`:
 
    ```bash
-   mv source/arxiv.sty source/arxiv.sty.bak   # pandoc no longer reads it
+   mv {SAFE_ID}/source/arxiv.sty {SAFE_ID}/source/arxiv.sty.bak
    ```
 
-3. Re-run the conversion. Then check that every change you made to the source survived, as `references/source-edits.md` describes.
+3. Re-run `convert-paper`. Then follow `references/source-edits.md`, where each renamed file and each added `\providecommand` is an edit. Where it tells you to apply the edit again, do steps 1 and 2 again on the downloaded source.
