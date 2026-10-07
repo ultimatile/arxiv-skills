@@ -5,7 +5,8 @@ reference file that holds it, so a pointer naming a missing file leaves the
 agent with the condition and no procedure. The test scans SKILL.md, every
 `.md` file in references/, the source of every module in the package (comments
 and messages alike), and the evaluated remedy `convert_latex.py` prints when
-it kills a runaway pandoc.
+it kills a runaway pandoc. That remedy also names its reference file before
+it mentions re-running.
 
 The same holds for the package scripts the agent is told to run. When a
 command in SKILL.md or references/ names a script, that script exists, and
@@ -82,6 +83,13 @@ def test_runaway_remedy_names_a_reference_file() -> None:
     assert "references/pandoc-runaway.md" in _REFERENCE.findall(
         convert_latex._RUNAWAY_REMEDY
     )
+
+
+def test_runaway_remedy_names_the_reference_before_a_re_run() -> None:
+    # The remedy is read before the reference file, so a re-run named first
+    # would be acted on before that file's check is read.
+    remedy = convert_latex._RUNAWAY_REMEDY.lower()
+    assert remedy.index("references/pandoc-runaway.md") < remedy.index("re-run")
 
 
 def _unreachable_references(skill_md: str, references: dict[str, str]) -> list[str]:

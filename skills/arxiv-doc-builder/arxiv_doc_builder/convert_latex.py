@@ -142,9 +142,9 @@ _KILL_REAP_GRACE_SECONDS = 10
 # Shared remediation tail for both runaway-kill diagnostics (timeout + memory).
 # They describe the same root cause and fix, so the guidance is written once.
 _RUNAWAY_REMEDY = (
-    "Move the style-only .sty out of the source directory (or comment its "
-    "\\usepackage line) and re-run. See references/pandoc-runaway.md in the "
-    "arxiv-doc-builder skill."
+    "The fix is to strip the style-only .sty, but check it first: follow "
+    "references/pandoc-runaway.md in the arxiv-doc-builder skill before "
+    "changing the source or re-running."
 )
 
 

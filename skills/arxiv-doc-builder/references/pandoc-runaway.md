@@ -30,12 +30,15 @@ pandoc's only channel from a `.sty` is the **macro table** it extracts (there is
 
 TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument); pandoc does not know `\@setfontsize`, so on the invocation it re-expands `\normalsize` inside its own body without bound. Verified minimal repro: self-reference **+ invocation** blows up; the same definition **without** invocation, or a non-self-referential body, converts instantly.
 
-## Fix: strip the style-only `.sty` (safe, and provably output-neutral here)
+## Fix: strip the style-only `.sty`
 
-Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`, then re-run. Then check that the change survived, as `references/source-edits.md` describes:
+Removing a `.sty` is not a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders better from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched.
 
-```bash
-mv source/arxiv.sty source/arxiv.sty.bak   # pandoc no longer reads it
-```
+1. Confirm the `.sty` defines no content macro used in the body (e.g. `\newcommand{\co}{ACME}`). If it does, stripping would lose that text, so copy that macro's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source; the `.sty` is still stripped in step 2.
+2. Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`:
 
-Removing a `.sty` is **not** a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders *better* from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched. Before stripping, confirm the `.sty` defines no **content macro** used in the body (e.g. `\newcommand{\co}{ACME}`); if it does, stripping would lose that text, so strip the `.sty` anyway and also copy that macro's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source. For style-only packages the intersection contains no content macro, so stripping is output-equivalent on the substantive content.
+   ```bash
+   mv source/arxiv.sty source/arxiv.sty.bak   # pandoc no longer reads it
+   ```
+
+3. Re-run the conversion. Then check that every change you made to the source survived, as `references/source-edits.md` describes.
