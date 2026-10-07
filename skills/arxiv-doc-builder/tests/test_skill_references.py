@@ -85,11 +85,9 @@ def test_runaway_remedy_names_a_reference_file() -> None:
     )
 
 
-def test_runaway_remedy_names_the_reference_before_mentioning_a_re_run() -> None:
-    # The reference file has a check that comes before the source is changed,
-    # and the remedy is read first. A remedy that mentions re-running ahead of
-    # the pointer sends the reader to re-run before reading that check. The
-    # comparison is on the first "re-run", in either case.
+def test_runaway_remedy_names_the_reference_before_a_re_run() -> None:
+    # The remedy is read before the reference file, so a re-run named first
+    # would be acted on before that file's check is read.
     remedy = convert_latex._RUNAWAY_REMEDY.lower()
     assert remedy.index("references/pandoc-runaway.md") < remedy.index("re-run")
 

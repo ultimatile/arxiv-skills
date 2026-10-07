@@ -32,9 +32,9 @@ TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument);
 
 ## Fix: strip the style-only `.sty`
 
-Removing a `.sty` is **not** a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders *better* from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched.
+Removing a `.sty` is not a blanket no-op, but the impact is decidable: it changes output only on `(commands the .sty defines/redefines) ∩ (commands used in the body)`. For a style-only package that intersection is layout scaffolding — `\section`/`\subsection`/`\maketitle` (which pandoc renders better from its built-ins; the `.sty`'s `\@startsection` redefinition actually mangles headings) plus front-matter like `\keywords`. Prose, math, citations, and glossary terms are untouched.
 
-1. Confirm the `.sty` defines no **content macro** used in the body (e.g. `\newcommand{\co}{ACME}`). If it does, stripping would lose that text, so copy that macro's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source; the `.sty` is still stripped in step 2.
+1. Confirm the `.sty` defines no content macro used in the body (e.g. `\newcommand{\co}{ACME}`). If it does, stripping would lose that text, so copy that macro's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source; the `.sty` is still stripped in step 2.
 2. Move the style `.sty` out of the source directory (reversible) or comment its `\usepackage`:
 
    ```bash
