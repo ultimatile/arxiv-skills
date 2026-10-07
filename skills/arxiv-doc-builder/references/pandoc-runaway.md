@@ -30,17 +30,17 @@ pandoc's only channel from a `.sty` is the **macro table** it extracts (there is
 
 TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument); pandoc does not know `\@setfontsize`, so on the invocation it re-expands `\normalsize` inside its own body without bound. Verified minimal repro: self-reference **+ invocation** blows up; the same definition **without** invocation, or a non-self-referential body, converts instantly.
 
-## Fix: strip the style-only `.sty`
+## Fix
 
 `{SAFE_ID}` is the name of the paper's directory, as SKILL.md's Procedure step 1 defines it. Paths below start with it, so they resolve from the directory `convert-paper` wrote the paper's directory into.
 
-The file to strip is a `.sty` file under `{SAFE_ID}/source/` that holds a redefinition like the one above: a `\renewcommand` or `\def` whose body uses the command it defines. Do steps 1 and 2 for each such file. When no `.sty` file under `{SAFE_ID}/source/` holds one, the runaway has a cause this file does not cover: stop following this file and tell the user that. If `{SAFE_ID}/pdf/{SAFE_ID}.pdf` exists, the paper can still be converted from it, as `references/pdf-conversion.md` describes.
+A file to strip is a `.sty` file under `{SAFE_ID}/source/` that holds a definition whose body uses the command it defines, as the `\renewcommand{\normalsize}` above does. Do steps 1 and 2 for each such file. When no `.sty` file under `{SAFE_ID}/source/` holds one, this file has no fix for the runaway: stop following it and tell the user that. When `{SAFE_ID}/pdf/{SAFE_ID}.pdf` exists, also tell the user that the paper can still be converted from that PDF, as `references/pdf-conversion.md` describes.
 
-1. Find the file's content macros: the commands it defines that the body of the paper uses and whose definition is text or math of the paper (e.g. `\newcommand{\co}{ACME}`). Stripping the file would lose that text, so copy each one's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source. Copy in the same way each command a copied definition uses, when the file introduces that command. A command the file only redefines, such as `\section` or `\large`, is not copied: pandoc renders it without the file. When the file has no content macro, this step changes nothing.
+1. Find the file's content macros. A content macro is a command that the file defines and has no `\renewcommand` of, that the paper uses after `\begin{document}`, and whose definition puts text or math into the paper (e.g. `\newcommand{\co}{ACME}` or `\newcommand{\vect}[1]{\mathbf{#1}}`). Stripping the file would lose that text, so copy each one's definition from the `.sty` into a `\providecommand` placed before the macro's first use anywhere in the source. Then copy in the same way each command that a definition you copied uses, when the file defines that command and has no `\renewcommand` of it either, and repeat until none is left. When the file has no content macro, this step changes nothing.
 2. Rename the file by appending `.bak`, so that pandoc no longer reads it. For `arxiv.sty`:
 
    ```bash
    mv {SAFE_ID}/source/arxiv.sty {SAFE_ID}/source/arxiv.sty.bak
    ```
 
-3. Re-run `convert-paper`. Then follow `references/source-edits.md`, where each renamed file and each added `\providecommand` is an edit. Where it tells you to apply the edit again, do steps 1 and 2 again on the downloaded source.
+3. Re-run `convert-paper`. Then follow `references/source-edits.md`, where each renamed file and each added `\providecommand` is an edit. Where it tells you to apply the edit again, do this section again from its start on the downloaded source.

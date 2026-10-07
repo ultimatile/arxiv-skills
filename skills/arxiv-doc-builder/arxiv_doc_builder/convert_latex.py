@@ -140,11 +140,10 @@ _RSS_POLL_SECONDS = 1.0
 # the very call these bounds exist to prevent.
 _KILL_REAP_GRACE_SECONDS = 10
 # Shared remediation tail for both runaway-kill diagnostics (timeout + memory).
-# They describe the same root cause and fix, so the guidance is written once.
+# Both send the reader to the same reference file, so the pointer is written once.
 _RUNAWAY_REMEDY = (
-    "The fix is to strip the style-only .sty, but check it first: follow "
-    "references/pandoc-runaway.md in the arxiv-doc-builder skill before "
-    "changing the source or re-running."
+    "For the fix, follow references/pandoc-runaway.md in the arxiv-doc-builder "
+    "skill before changing the source or re-running."
 )
 
 
@@ -254,7 +253,7 @@ def convert_with_pandoc(
         stderr = errf.read().decode(errors="replace")
 
     if killed_for == "timeout":
-        # Not "slow" — a runaway. Name the most common root cause and the fix.
+        # Not "slow" — a runaway. Name the most common root cause and where the fix is.
         print(
             f"Pandoc did not finish within {timeout}s and was killed. A normal "
             "conversion takes seconds; a runaway almost always means pandoc is "
