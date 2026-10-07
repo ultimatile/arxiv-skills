@@ -32,7 +32,7 @@ TeX is fine (`\@setfontsize` consumes `\normalsize` as a non-expanded argument);
 
 ## Fix
 
-`{SAFE_ID}` is the name of the paper's directory, as SKILL.md's Procedure step 1 defines it. Paths below start with it, so they resolve from the directory `convert-paper` wrote the paper's directory into.
+`{SAFE_ID}` is the name of the paper's directory, as SKILL.md's Procedure step 1 defines it. A path below that starts with `{SAFE_ID}/` resolves from the directory `convert-paper` wrote the paper's directory into. When that is not your working directory, put its path in front of each such path.
 
 A file to strip is a `.sty` file under `{SAFE_ID}/source/` that holds a definition whose body uses the command it defines, as the `\renewcommand{\normalsize}` above does. Do steps 1 and 2 for each such file. When no `.sty` file under `{SAFE_ID}/source/` holds one, this file has no fix for the runaway: stop following it and tell the user that. When `{SAFE_ID}/pdf/{SAFE_ID}.pdf` exists, also tell the user that the paper can still be converted from that PDF, as `references/pdf-conversion.md` describes.
 
