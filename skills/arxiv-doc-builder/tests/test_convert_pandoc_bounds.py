@@ -102,28 +102,48 @@ def _patch_popen(monkeypatch: pytest.MonkeyPatch, proc: _FakeProc) -> None:
     monkeypatch.setattr(convert_latex.subprocess, "Popen", popen)
 
 
+def _finished_run(monkeypatch: pytest.MonkeyPatch, *, returncode: int) -> _FakeProc:
+    """Fake a pandoc run that has already exited with ``returncode``, on a clock
+    that never advances, so neither bound can trip."""
+    proc = _FakeProc(finishes=True, returncode=returncode)
+    _patch_popen(monkeypatch, proc)
+    monkeypatch.setattr(convert_latex.time, "monotonic", lambda: 0.0)
+    return proc
+
+
+def _patch_run(
+    monkeypatch: pytest.MonkeyPatch, result: _FakeCompleted | Exception
+) -> list[tuple[list[str], dict[str, object]]]:
+    """Replace subprocess.run with a fake that records each call's argv and
+    keyword arguments, then returns ``result`` or, when it is an exception,
+    raises it."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def run(args: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append((list(args), kwargs))
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(convert_latex.subprocess, "run", run)
+    return calls
+
+
 # ---- _process_rss_mb ----
 
 
 def test_process_rss_mb_parses_kb_to_mb(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        convert_latex.subprocess, "run", lambda *a, **k: _FakeCompleted("2048\n")
-    )
+    _patch_run(monkeypatch, _FakeCompleted("2048\n"))
     assert _process_rss_mb(1234) == 2  # 2048 KB -> 2 MB
 
 
 def test_process_rss_mb_none_on_unparseable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        convert_latex.subprocess, "run", lambda *a, **k: _FakeCompleted("")
-    )
+    _patch_run(monkeypatch, _FakeCompleted(""))
     assert _process_rss_mb(1234) is None
 
 
 def test_process_rss_mb_none_on_ps_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(*a: object, **k: object) -> NoReturn:
-        raise OSError("ps unavailable")
-
-    monkeypatch.setattr(convert_latex.subprocess, "run", boom)
+    _patch_run(monkeypatch, OSError("ps unavailable"))
     assert _process_rss_mb(1234) is None
 
 
@@ -216,9 +236,7 @@ def test_process_rss_mb_none_when_ps_path_relative(
 
 
 def test_success_returns_true_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(finishes=True, returncode=0)
-    _patch_popen(monkeypatch, proc)
-    monkeypatch.setattr(convert_latex.time, "monotonic", lambda: 0.0)
+    proc = _finished_run(monkeypatch, returncode=0)
 
     ok = convert_with_pandoc(Path("x.tex"), Path("out.md"))
 
@@ -229,9 +247,7 @@ def test_success_returns_true_without_kill(monkeypatch: pytest.MonkeyPatch) -> N
 def test_nonzero_exit_returns_false_without_kill(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    proc = _FakeProc(finishes=True, returncode=1)
-    _patch_popen(monkeypatch, proc)
-    monkeypatch.setattr(convert_latex.time, "monotonic", lambda: 0.0)
+    proc = _finished_run(monkeypatch, returncode=1)
 
     ok = convert_with_pandoc(Path("x.tex"), Path("out.md"))
 
@@ -270,6 +286,8 @@ def test_post_kill_wait_timeout_does_not_rehang(
         (b"pandoc 3.12.1\nFeatures: +server +lua\n", MATH_METHOD),
         (b"pandoc 4.0\n", MATH_METHOD),
         (b"pandoc 3.10.2\n", MATHJAX),
+        # Compared as integers: as strings, "9" would sort after "11".
+        (b"pandoc 3.9\n", MATHJAX),
         # Three-part version whose minor is 1, not 11.
         (b"pandoc 3.1.11\n", MATHJAX),
         (b"pandoc 2.19.2\n", MATHJAX),
@@ -283,10 +301,16 @@ def test_post_kill_wait_timeout_does_not_rehang(
 def test_pandoc_math_flag_from_version(
     monkeypatch: pytest.MonkeyPatch, stdout: bytes, expected: str
 ) -> None:
-    monkeypatch.setattr(
-        convert_latex.subprocess, "run", lambda *a, **k: _FakeCompleted(stdout)
-    )
-    assert _pandoc_math_flag("/usr/bin/pandoc") == expected
+    calls = _patch_run(monkeypatch, _FakeCompleted(stdout))
+    assert _pandoc_math_flag("/opt/pandoc-x/bin/pandoc") == expected
+    # One bounded run of the path it was given (one which() does not return
+    # here), never a fresh PATH lookup.
+    assert calls == [
+        (
+            ["/opt/pandoc-x/bin/pandoc", "--version"],
+            {"capture_output": True, "timeout": 10},
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -296,11 +320,8 @@ def test_pandoc_math_flag_from_version(
 def test_pandoc_math_flag_falls_back_when_version_run_fails(
     monkeypatch: pytest.MonkeyPatch, exc: Exception
 ) -> None:
-    def boom(*a: object, **k: object) -> NoReturn:
-        raise exc
-
-    monkeypatch.setattr(convert_latex.subprocess, "run", boom)
-    assert _pandoc_math_flag("/usr/bin/pandoc") == MATHJAX
+    _patch_run(monkeypatch, exc)
+    assert _pandoc_math_flag("/opt/pandoc-x/bin/pandoc") == MATHJAX
 
 
 def test_math_flag_reaches_pandoc_argv(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -311,9 +332,7 @@ def test_math_flag_reaches_pandoc_argv(monkeypatch: pytest.MonkeyPatch) -> None:
         return "--sentinel-math-option"
 
     monkeypatch.setattr(convert_latex, "_pandoc_math_flag", sentinel_flag)
-    proc = _FakeProc(finishes=True, returncode=0)
-    _patch_popen(monkeypatch, proc)
-    monkeypatch.setattr(convert_latex.time, "monotonic", lambda: 0.0)
+    proc = _finished_run(monkeypatch, returncode=0)
 
     assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is True
     assert asked == ["/usr/bin/pandoc"]
