@@ -1,10 +1,15 @@
-"""Contract tests for the pandoc runaway bounds in convert_with_pandoc.
+"""Contract tests for convert_with_pandoc: its runaway bounds and its math option.
 
 Contract: convert_with_pandoc must never hang on a runaway pandoc. It bounds
 execution by a wall-clock timeout and an RSS watchdog; on either trip it kills
 the child and returns False (it does not raise and does not block past the
 timeout). _process_rss_mb must parse `ps -o rss=` output defensively, returning
 None rather than raising when the output is unparseable or `ps` fails.
+
+Contract: the math option passed to pandoc is the one _pandoc_math_flag picks
+from `pandoc --version` — `--math-method=mathjax` from pandoc 3.11 on, where
+`--mathjax` is deprecated and warns on stderr, and `--mathjax` before 3.11 or
+whenever the version cannot be read.
 
 These use fakes for subprocess.Popen / subprocess.run / time.monotonic so the
 control flow is exercised without depending on a real pandoc or on timing.
@@ -17,7 +22,14 @@ from typing import NoReturn
 import pytest
 
 from arxiv_doc_builder import convert_latex
-from arxiv_doc_builder.convert_latex import _process_rss_mb, convert_with_pandoc
+from arxiv_doc_builder.convert_latex import (
+    _pandoc_math_flag,
+    _process_rss_mb,
+    convert_with_pandoc,
+)
+
+MATH_METHOD = "--math-method=mathjax"
+MATHJAX = "--mathjax"
 
 
 @pytest.fixture(autouse=True)
@@ -28,10 +40,29 @@ def _which_resolves_fake(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(convert_latex.shutil, "which", lambda name: f"/usr/bin/{name}")
 
 
+@pytest.fixture(autouse=True)
+def _math_flag_stub(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the `pandoc --version` probe, recording each pandoc path it gets.
+
+    The bounds tests replace subprocess.Popen globally with a fake, and the real
+    subprocess.run inside the probe would launch through that fake and fail.
+    The probe's own tests call the directly imported _pandoc_math_flag, which
+    this stub does not replace.
+    """
+    calls: list[str] = []
+
+    def stub(pandoc_bin: str) -> str:
+        calls.append(pandoc_bin)
+        return MATHJAX
+
+    monkeypatch.setattr(convert_latex, "_pandoc_math_flag", stub)
+    return calls
+
+
 class _FakeCompleted:
     """Stand-in for subprocess.run's CompletedProcess (stdout only)."""
 
-    def __init__(self, stdout: str) -> None:
+    def __init__(self, stdout: str | bytes) -> None:
         self.stdout = stdout
 
 
@@ -48,6 +79,7 @@ class _FakeProc:
         self.returncode = returncode
         self.pid = 4321
         self.killed = False
+        self.args: list[str] = []
 
     def wait(self, timeout: float | None = None) -> int:
         if self._finishes:
@@ -63,7 +95,11 @@ class _FakeProc:
 
 
 def _patch_popen(monkeypatch: pytest.MonkeyPatch, proc: _FakeProc) -> None:
-    monkeypatch.setattr(convert_latex.subprocess, "Popen", lambda *a, **k: proc)
+    def popen(args: list[str], *a: object, **k: object) -> _FakeProc:
+        proc.args = list(args)
+        return proc
+
+    monkeypatch.setattr(convert_latex.subprocess, "Popen", popen)
 
 
 # ---- _process_rss_mb ----
@@ -124,7 +160,9 @@ def test_rss_watchdog_kills_and_returns_false(monkeypatch: pytest.MonkeyPatch) -
     assert proc.killed
 
 
-def test_returns_false_when_pandoc_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_returns_false_when_pandoc_missing(
+    monkeypatch: pytest.MonkeyPatch, _math_flag_stub: list[str]
+) -> None:
     # Fail closed (not hang, not crash) when pandoc cannot be resolved on PATH.
     monkeypatch.setattr(convert_latex.shutil, "which", lambda _name: None)
 
@@ -134,10 +172,11 @@ def test_returns_false_when_pandoc_missing(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(convert_latex.subprocess, "Popen", _no_popen)
 
     assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is False
+    assert _math_flag_stub == []  # no `pandoc --version` exec either
 
 
 def test_returns_false_when_pandoc_path_relative(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, _math_flag_stub: list[str]
 ) -> None:
     # A relative which() result (relative PATH entry) must be rejected, since it
     # would re-resolve against the untrusted cwd.
@@ -149,6 +188,8 @@ def test_returns_false_when_pandoc_path_relative(
     monkeypatch.setattr(convert_latex.subprocess, "Popen", _no_popen)
 
     assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is False
+    # The version probe execs pandoc too, so it must not see the relative path.
+    assert _math_flag_stub == []
 
 
 def test_process_rss_mb_none_when_ps_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,6 +258,67 @@ def test_post_kill_wait_timeout_does_not_rehang(
 
     assert ok is False
     assert proc.killed
+
+
+# ---- math option ----
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [
+        (b"pandoc 3.11\n", MATH_METHOD),
+        (b"pandoc 3.12.1\nFeatures: +server +lua\n", MATH_METHOD),
+        (b"pandoc 4.0\n", MATH_METHOD),
+        (b"pandoc 3.10.2\n", MATHJAX),
+        # Three-part version whose minor is 1, not 11.
+        (b"pandoc 3.1.11\n", MATHJAX),
+        (b"pandoc 2.19.2\n", MATHJAX),
+        (b"", MATHJAX),
+        (b"not a version line\n", MATHJAX),
+        # A later line (e.g. the user data directory) that is not valid UTF-8
+        # must not stop the first line from being read.
+        (b"pandoc 3.12.1\nUser data directory: /home/d\xe9\xff\n", MATH_METHOD),
+    ],
+)
+def test_pandoc_math_flag_from_version(
+    monkeypatch: pytest.MonkeyPatch, stdout: bytes, expected: str
+) -> None:
+    monkeypatch.setattr(
+        convert_latex.subprocess, "run", lambda *a, **k: _FakeCompleted(stdout)
+    )
+    assert _pandoc_math_flag("/usr/bin/pandoc") == expected
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [OSError("exec failed"), subprocess.TimeoutExpired(cmd="pandoc", timeout=10)],
+)
+def test_pandoc_math_flag_falls_back_when_version_run_fails(
+    monkeypatch: pytest.MonkeyPatch, exc: Exception
+) -> None:
+    def boom(*a: object, **k: object) -> NoReturn:
+        raise exc
+
+    monkeypatch.setattr(convert_latex.subprocess, "run", boom)
+    assert _pandoc_math_flag("/usr/bin/pandoc") == MATHJAX
+
+
+def test_math_flag_reaches_pandoc_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[str] = []
+
+    def sentinel_flag(pandoc_bin: str) -> str:
+        asked.append(pandoc_bin)
+        return "--sentinel-math-option"
+
+    monkeypatch.setattr(convert_latex, "_pandoc_math_flag", sentinel_flag)
+    proc = _FakeProc(finishes=True, returncode=0)
+    _patch_popen(monkeypatch, proc)
+    monkeypatch.setattr(convert_latex.time, "monotonic", lambda: 0.0)
+
+    assert convert_with_pandoc(Path("x.tex"), Path("out.md")) is True
+    assert asked == ["/usr/bin/pandoc"]
+    assert "--sentinel-math-option" in proc.args
+    assert MATHJAX not in proc.args
 
 
 # ---- _int_env (env-override parsing) ----
