@@ -175,6 +175,35 @@ def _process_rss_mb(pid: int) -> Optional[int]:
     return int(out) // 1024 if out.isdigit() else None
 
 
+# pandoc 3.11 added --math-method and deprecated --mathjax, which from then on
+# writes a deprecation warning to stderr. On a failed conversion that warning is
+# printed first, ahead of the actual parse error. Releases before 3.11 reject
+# --math-method as an unknown option, so the option has to follow the version.
+# Both options select MathJax and give the same Markdown.
+_MATH_METHOD_MIN_VERSION = (3, 11)
+
+
+def _pandoc_math_flag(pandoc_bin: str) -> str:
+    """The pandoc option selecting MathJax math for the pandoc at ``pandoc_bin``.
+
+    ``--math-method=mathjax`` on pandoc 3.11 and later, ``--mathjax`` before.
+    Also ``--mathjax`` when ``pandoc --version`` cannot be run, times out, or
+    prints a first line without a version: pandoc still accepts it, and on 3.11
+    or later the cost is only the deprecation warning.
+    """
+    try:
+        out = subprocess.run([pandoc_bin, "--version"], capture_output=True, timeout=10)
+    except (subprocess.SubprocessError, OSError):
+        return "--mathjax"
+    # Decode leniently: later lines carry paths (the user data directory) that
+    # need not be valid in any particular encoding.
+    first_line = out.stdout.decode(errors="replace").partition("\n")[0]
+    match = re.match(r"\S+\s+(\d+)\.(\d+)", first_line)
+    if match and (int(match[1]), int(match[2])) >= _MATH_METHOD_MIN_VERSION:
+        return "--math-method=mathjax"
+    return "--mathjax"
+
+
 def convert_with_pandoc(
     tex_file: Path,
     output_md: Path,
@@ -199,6 +228,8 @@ def convert_with_pandoc(
         print("Error: pandoc not found on PATH as an absolute path.", file=sys.stderr)
         return False
 
+    math_flag = _pandoc_math_flag(pandoc_bin)
+
     # Use absolute paths
     tex_file_abs = tex_file.resolve()
     output_md_abs = output_md.resolve()
@@ -218,7 +249,7 @@ def convert_with_pandoc(
                 "-t",
                 "markdown",
                 "--wrap=none",
-                "--mathjax",
+                math_flag,
                 "-o",
                 str(output_md_abs),
             ],
